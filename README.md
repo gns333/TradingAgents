@@ -162,6 +162,23 @@ For local models, configure Ollama with `llm_provider: "ollama"`. The default en
 
 For any other OpenAI-compatible server (vLLM, LM Studio, llama.cpp, or a custom relay), use `llm_provider: "openai_compatible"` and set the endpoint via `backend_url` (or `TRADINGAGENTS_LLM_BACKEND_URL`), e.g. `http://localhost:8000/v1` for vLLM or `http://localhost:1234/v1` for LM Studio. The model is whatever your server serves. No key is needed for local servers; set `OPENAI_COMPATIBLE_API_KEY` when the endpoint requires one.
 
+For Mainland China A-share analysis, install the optional AKShare data adapter and use the China profile:
+```bash
+pip install "tradingagents[china]"
+export TRADINGAGENTS_MARKET_PROFILE=china_mainland
+export DEEPSEEK_API_KEY=...
+```
+The profile switches defaults to DeepSeek, Chinese report output, AKShare-first A-share data vendors with yfinance fallback where available, and China macro/news queries. You can still override any setting with the existing `TRADINGAGENTS_*` environment variables.
+
+To view analysis progress and reports in a browser, install the optional web app and start the server:
+```bash
+pip install "tradingagents[web,china]"
+export TRADINGAGENTS_MARKET_PROFILE=china_mainland
+export DEEPSEEK_API_KEY=...
+tradingagents-web --host 127.0.0.1 --port 8000
+```
+Then open `http://127.0.0.1:8000`.
+
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
 cp .env.example .env

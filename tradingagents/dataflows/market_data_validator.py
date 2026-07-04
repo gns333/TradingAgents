@@ -11,10 +11,13 @@ claim. Deterministic, no LLM involved.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime, timedelta
 
 import pandas as pd
 from stockstats import wrap
 
+from tradingagents.dataflows.akshare_stock import get_stock_frame as get_akshare_stock_frame
+from tradingagents.dataflows.china_symbol_utils import parse_china_symbol
 from tradingagents.dataflows.stockstats_utils import load_ohlcv
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
@@ -32,7 +35,7 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     look-ahead rows, but we re-apply the cutoff defensively — this is a
     verification path, so it must not trust its input to be pre-filtered.
     """
-    data = load_ohlcv(symbol, curr_date)
+    data = _load_ohlcv(symbol, curr_date)
     if data is None or data.empty:
         raise ValueError(f"No OHLCV data available for {symbol}.")
 
@@ -43,6 +46,15 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     if df.empty:
         raise ValueError(f"No OHLCV rows on or before {curr_date} for {symbol}.")
     return df
+
+
+def _load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
+    """Load OHLCV from the configured market-specific source."""
+    if parse_china_symbol(symbol) is not None:
+        end = datetime.strptime(curr_date, "%Y-%m-%d")
+        start = (end - timedelta(days=450)).strftime("%Y-%m-%d")
+        return get_akshare_stock_frame(symbol, start, curr_date)
+    return load_ohlcv(symbol, curr_date)
 
 
 def _fmt(value) -> str:

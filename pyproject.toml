@@ -44,15 +44,24 @@ dev = [
 bedrock = [
     "langchain-aws>=1.5.0",
 ]
+china = [
+    "akshare",
+]
+web = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"
+tradingagents-web = "tradingagents.web.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
+"tradingagents.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

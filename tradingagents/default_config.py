@@ -1,6 +1,8 @@
 import os
+from copy import deepcopy
 
 _TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
+_MARKET_PROFILE_ENV = "TRADINGAGENTS_MARKET_PROFILE"
 
 # Single source of truth for env-var → config-key overrides. To expose
 # a new config key for environment-based override, add a row here — no
@@ -24,6 +26,38 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
+}
+
+MARKET_PROFILES = {
+    "china_mainland": {
+        "market_profile": "china_mainland",
+        "llm_provider": "deepseek",
+        "quick_think_llm": "deepseek-v4-flash",
+        "deep_think_llm": "deepseek-v4-pro",
+        "output_language": "Chinese",
+        "global_news_queries": [
+            "A股 市场 政策 监管 资金面",
+            "中国 宏观经济 CPI PPI PMI 社融 LPR",
+            "央行 证监会 财政部 政策 股市",
+            "北向资金 融资融券 板块轮动",
+            "人民币 汇率 大宗商品 出口 消费",
+        ],
+        "data_vendors": {
+            "core_stock_apis": "akshare,yfinance",
+            "technical_indicators": "akshare,yfinance",
+            "fundamental_data": "akshare,yfinance",
+            "news_data": "akshare,yfinance",
+            "macro_data": "akshare",
+            "prediction_markets": "polymarket",
+        },
+        "benchmark_map": {
+            ".SH": "000001.SS",
+            ".SS": "000001.SS",
+            ".SZ": "399001.SZ",
+            ".BJ": "899050.BJ",
+            "": "000300.SS",
+        },
+    },
 }
 
 
@@ -67,7 +101,30 @@ def _apply_env_overrides(config: dict) -> dict:
     return config
 
 
-DEFAULT_CONFIG = _apply_env_overrides({
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    merged = deepcopy(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _apply_market_profile(config: dict) -> dict:
+    profile = os.environ.get(_MARKET_PROFILE_ENV, "").strip()
+    if not profile:
+        return config
+    if profile not in MARKET_PROFILES:
+        available = ", ".join(sorted(MARKET_PROFILES))
+        raise ValueError(
+            f"Invalid value for {_MARKET_PROFILE_ENV}: {profile!r}. "
+            f"Available profiles: {available}."
+        )
+    return _deep_merge(config, MARKET_PROFILES[profile])
+
+
+_BASE_DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
@@ -77,6 +134,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # Pending entries are never pruned. None disables rotation entirely.
     "memory_log_max_entries": None,
     # LLM settings
+    "market_profile": "default",
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.5",
     "quick_think_llm": "gpt-5.4-mini",
@@ -156,4 +214,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
         ".SZ":  "399001.SZ",   # Shenzhen (SZSE Component)
         "":     "SPY",         # default for US-listed tickers (no suffix)
     },
-})
+}
+
+
+DEFAULT_CONFIG = _apply_env_overrides(_apply_market_profile(deepcopy(_BASE_DEFAULT_CONFIG)))

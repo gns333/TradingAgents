@@ -1,0 +1,965 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TradingAgents</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --line: #d9dfe7;
+      --line-soft: #edf1f5;
+      --text: #17202a;
+      --muted: #647386;
+      --faint: #8b97a7;
+      --accent: #147a63;
+      --accent-weak: #e3f2ed;
+      --active: #116d84;
+      --active-weak: #e1f0f4;
+      --done: #147a63;
+      --warn: #9a5b00;
+      --danger: #b42318;
+      --shadow: 0 12px 30px rgba(31, 42, 55, .07);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 14px;
+    }
+    header {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, .92);
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    h1 {
+      font-size: 19px;
+      margin: 0;
+      font-weight: 750;
+      letter-spacing: 0;
+    }
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      min-width: 0;
+    }
+    .run-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 28px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .run-pill::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--faint);
+    }
+    .run-pill.running {
+      color: var(--active);
+      border-color: #b7dce5;
+      background: var(--active-weak);
+    }
+    .run-pill.running::before {
+      background: var(--active);
+      box-shadow: 0 0 0 4px rgba(17, 109, 132, .13);
+    }
+    .run-pill.done {
+      color: var(--done);
+      border-color: #b8dccf;
+      background: var(--accent-weak);
+    }
+    .run-pill.done::before { background: var(--done); }
+    .run-pill.failed {
+      color: var(--danger);
+      border-color: #f1b7b1;
+      background: #fff1f0;
+    }
+    .run-pill.failed::before { background: var(--danger); }
+    main {
+      display: grid;
+      grid-template-columns: 318px minmax(0, 1fr);
+      min-height: calc(100vh - 58px);
+    }
+    aside {
+      padding: 18px;
+      border-right: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+    section {
+      padding: 18px;
+      min-width: 0;
+    }
+    .control-panel,
+    .status-card,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+    .control-panel {
+      padding: 14px;
+    }
+    .status-card {
+      margin-top: 12px;
+      padding: 13px;
+    }
+    .field {
+      margin-bottom: 12px;
+    }
+    label.field-label {
+      display: block;
+      margin: 0 0 6px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    input:not([type="checkbox"]), select {
+      width: 100%;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      background: #fff;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .checkbox-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .check-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .check-option input {
+      width: 15px;
+      height: 15px;
+      margin: 0;
+      flex: 0 0 auto;
+      accent-color: var(--accent);
+    }
+    button {
+      width: 100%;
+      height: 38px;
+      margin-top: 2px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 750;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      background: var(--accent-weak);
+      color: var(--accent);
+      font-size: 13px;
+      min-height: 36px;
+    }
+    .status-card h2,
+    .panel h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 750;
+    }
+    .status-grid {
+      display: grid;
+      gap: 9px;
+      margin-top: 12px;
+    }
+    .metric {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 0;
+      border-top: 1px solid var(--line-soft);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric strong {
+      color: var(--text);
+      font-size: 13px;
+      text-align: right;
+    }
+    .workspace {
+      display: grid;
+      gap: 14px;
+    }
+    .top-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+    }
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(340px, 480px) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .panel {
+      min-height: 160px;
+      overflow: hidden;
+    }
+    .content-grid .panel {
+      min-height: 430px;
+    }
+    .panel-header {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+    .panel-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .team-board {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+    .role-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .role-name {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text);
+      font-weight: 750;
+      font-size: 13px;
+    }
+    .role-kind {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .role-state {
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: #eef1f4;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .role-card.active {
+      border-color: #acd5df;
+      background: var(--active-weak);
+    }
+    .role-card.active .role-state {
+      background: #cce7ed;
+      color: var(--active);
+    }
+    .role-card.done {
+      border-color: #b7dccf;
+      background: var(--accent-weak);
+    }
+    .role-card.done .role-state {
+      background: #c9e7dd;
+      color: var(--done);
+    }
+    .log, .reports {
+      padding: 12px;
+      overflow: auto;
+      max-height: calc(100vh - 184px);
+      min-height: 382px;
+    }
+    .reports {
+      padding-top: 0;
+    }
+    .report-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line-soft);
+      overflow-x: auto;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--panel);
+    }
+    .report-tabs:empty,
+    .report-panels:empty {
+      display: none;
+    }
+    .report-tab {
+      flex: 0 0 auto;
+      width: auto;
+      height: 30px;
+      margin: 0;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+    .report-tab.active {
+      border-color: #b8dccf;
+      background: var(--accent-weak);
+      color: var(--accent);
+    }
+    .report-panels {
+      padding-top: 12px;
+    }
+    .empty-state {
+      min-height: 90px;
+      display: grid;
+      place-items: center;
+      color: var(--faint);
+      font-size: 13px;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+    .event {
+      position: relative;
+      padding: 10px 0 10px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .event::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 17px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--line);
+    }
+    .event.active::before { background: var(--active); }
+    .event.done::before { background: var(--done); }
+    .event.error::before { background: var(--danger); }
+    .event-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 750;
+    }
+    .event-meta {
+      color: var(--faint);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .event-preview {
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      line-height: 1.55;
+    }
+    .event details {
+      margin-top: 7px;
+      border: 1px solid var(--line-soft);
+      border-radius: 6px;
+      background: #fbfcfd;
+    }
+    .event summary {
+      padding: 7px 9px;
+      cursor: pointer;
+      color: var(--active);
+      font-weight: 700;
+      list-style-position: inside;
+    }
+    .event pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 0;
+      padding: 0 9px 9px;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text);
+    }
+    .report-article {
+      padding: 0 0 4px;
+      margin: 0;
+    }
+    .report-article h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: var(--accent);
+    }
+    .markdown {
+      font-size: 14px;
+      line-height: 1.68;
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+    .markdown h1,
+    .markdown h2,
+    .markdown h3,
+    .markdown h4 {
+      margin: 14px 0 8px;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .markdown h1 { font-size: 20px; }
+    .markdown h2 { font-size: 17px; }
+    .markdown h3 { font-size: 15px; }
+    .markdown h4 { font-size: 14px; }
+    .markdown p { margin: 8px 0; }
+    .markdown ul,
+    .markdown ol {
+      margin: 8px 0 8px 20px;
+      padding: 0;
+    }
+    .markdown li { margin: 4px 0; }
+    .markdown table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+    .markdown th,
+    .markdown td {
+      border: 1px solid var(--line);
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .markdown th {
+      background: #f3f6f8;
+      font-weight: 700;
+    }
+    .markdown code {
+      padding: 1px 4px;
+      border-radius: 4px;
+      background: #eef1f4;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .markdown pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 6px;
+      background: #f3f6f8;
+    }
+    .markdown pre code {
+      padding: 0;
+      background: transparent;
+    }
+    @media (max-width: 1100px) {
+      .team-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .content-grid { grid-template-columns: 1fr; }
+      .log, .reports { max-height: 540px; }
+    }
+    @media (max-width: 760px) {
+      header { align-items: flex-start; height: auto; padding: 14px 16px; flex-direction: column; }
+      main { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      section { padding: 14px; }
+      .checkbox-group, .team-board { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TradingAgents</h1>
+    <div class="header-meta">
+      <span id="clock"></span>
+      <span class="run-pill" id="run-state">空闲</span>
+    </div>
+  </header>
+  <main>
+    <aside>
+      <div class="control-panel">
+        <div class="field">
+          <label class="field-label" for="ticker">股票代码</label>
+          <input id="ticker" value="600519.SH" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="trade-date">分析日期</label>
+          <input id="trade-date" type="date">
+        </div>
+        <div class="field">
+          <label class="field-label">分析模块</label>
+          <div class="checkbox-group" id="analyst-options">
+            <label class="check-option"><input type="checkbox" name="analyst" value="market" checked>市场</label>
+            <label class="check-option"><input type="checkbox" name="analyst" value="news" checked>新闻</label>
+            <label class="check-option"><input type="checkbox" name="analyst" value="fundamentals" checked>基本面</label>
+            <label class="check-option"><input type="checkbox" name="analyst" value="social">社交情绪</label>
+          </div>
+        </div>
+        <button id="run">开始分析</button>
+        <div class="status" id="status">等待开始</div>
+      </div>
+      <div class="status-card">
+        <h2>运行状态</h2>
+        <div class="status-grid">
+          <div class="metric"><span>当前 Agent</span><strong id="current-agent">未开始</strong></div>
+          <div class="metric"><span>过程事件</span><strong id="event-count">0</strong></div>
+          <div class="metric"><span>阶段</span><strong id="run-phase">待启动</strong></div>
+        </div>
+      </div>
+    </aside>
+    <section>
+      <div class="workspace">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>团队协作</h2>
+            <span class="panel-subtitle">多个分析员、研究员、交易员按阶段接力</span>
+          </div>
+          <div class="team-board" id="team-board"></div>
+        </div>
+        <div class="content-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>过程</h2>
+              <span class="panel-subtitle">长输出默认折叠</span>
+            </div>
+            <div class="log" id="log"><div class="empty-state">等待过程事件</div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h2>报告</h2>
+              <span class="panel-subtitle">Markdown 渲染</span>
+            </div>
+            <div class="reports" id="reports">
+              <div class="empty-state">等待报告生成</div>
+              <div class="report-tabs" id="report-tabs" role="tablist" aria-label="报告页签"></div>
+              <div class="report-panels" id="report-panels"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const COLLAPSE_LIMIT = 260;
+    const TEAM_ROLES = {
+      market: { label: '市场分析师', kind: '价格/技术面', report: 'market_report' },
+      news: { label: '新闻分析师', kind: '资讯催化', report: 'news_report' },
+      fundamentals: { label: '基本面分析师', kind: '财务/估值', report: 'fundamentals_report' },
+      social: { label: '情绪分析师', kind: '社交/舆情', report: 'sentiment_report' },
+      research_manager: { label: '研究经理', kind: '多空观点整合', report: 'investment_plan' },
+      trader: { label: '交易员', kind: '交易计划', report: 'trader_investment_plan' },
+      portfolio_manager: { label: '组合经理', kind: '最终决策', report: 'final_trade_decision' }
+    };
+    const SECTION_TO_ROLE = Object.fromEntries(
+      Object.entries(TEAM_ROLES).map(([key, role]) => [role.report, key])
+    );
+    const MODULE_LABELS = {
+      market: '市场',
+      news: '新闻',
+      fundamentals: '基本面',
+      social: '社交情绪'
+    };
+
+    const date = document.getElementById('trade-date');
+    date.value = new Date().toISOString().slice(0, 10);
+    document.getElementById('clock').textContent = date.value;
+
+    const log = document.getElementById('log');
+    const reports = document.getElementById('reports');
+    let reportTabs = document.getElementById('report-tabs');
+    let reportPanels = document.getElementById('report-panels');
+    const status = document.getElementById('status');
+    const run = document.getElementById('run');
+    const runState = document.getElementById('run-state');
+    const currentAgent = document.getElementById('current-agent');
+    const eventCount = document.getElementById('event-count');
+    const runPhase = document.getElementById('run-phase');
+    const teamBoard = document.getElementById('team-board');
+    let source = null;
+    let streamDone = false;
+    let eventTotal = 0;
+    let roleStates = {};
+
+    function reportTitle(section) {
+      const roleKey = SECTION_TO_ROLE[section];
+      if (roleKey && TEAM_ROLES[roleKey]) return TEAM_ROLES[roleKey].label;
+      return section
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, char => char.toUpperCase());
+    }
+
+    function getSelectedAnalysts() {
+      return [...document.querySelectorAll('input[name="analyst"]:checked')]
+        .map(input => input.value)
+        .join(',');
+    }
+
+    function selectedAnalystList() {
+      const selected = getSelectedAnalysts().split(',').filter(Boolean);
+      return selected.length ? selected : ['market', 'news', 'fundamentals'];
+    }
+
+    function setRunState(text, mode) {
+      runState.textContent = text;
+      runState.className = `run-pill ${mode || ''}`.trim();
+      runPhase.textContent = text;
+    }
+
+    function resetTeamBoard(analysts) {
+      roleStates = {};
+      const keys = [...analysts, 'research_manager', 'trader', 'portfolio_manager'];
+      keys.forEach(key => { roleStates[key] = 'pending'; });
+      renderTeamBoard();
+    }
+
+    function renderTeamBoard() {
+      teamBoard.textContent = '';
+      Object.entries(roleStates).forEach(([key, state]) => {
+        const role = TEAM_ROLES[key];
+        if (!role) return;
+        const card = document.createElement('div');
+        card.className = `role-card ${state === 'active' ? 'active' : ''} ${state === 'done' ? 'done' : ''}`;
+        const label = state === 'active' ? '进行中' : state === 'done' ? '已完成' : '待处理';
+        card.innerHTML = `<div class="role-name"><span></span><span class="role-state">${label}</span></div><div class="role-kind"></div>`;
+        card.querySelector('.role-name span').textContent = role.label;
+        card.querySelector('.role-kind').textContent = role.kind;
+        teamBoard.appendChild(card);
+      });
+    }
+
+    function markRole(key, state) {
+      if (!roleStates[key]) return;
+      if (state === 'active') {
+        Object.keys(roleStates).forEach(name => {
+          if (roleStates[name] === 'active') roleStates[name] = 'done';
+        });
+      }
+      roleStates[key] = state;
+      currentAgent.textContent = TEAM_ROLES[key]?.label || '团队协作';
+      renderTeamBoard();
+    }
+
+    function tickEvent() {
+      eventTotal += 1;
+      eventCount.textContent = String(eventTotal);
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function renderInline(value) {
+      let text = escapeHtml(value);
+      text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+      text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      return text;
+    }
+
+    function isTableSeparator(line) {
+      return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+    }
+
+    function splitTableRow(line) {
+      return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+    }
+
+    function renderMarkdown(markdown) {
+      const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
+      const output = [];
+      let i = 0;
+
+      while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed) {
+          i += 1;
+          continue;
+        }
+
+        if (trimmed.startsWith('```')) {
+          const code = [];
+          i += 1;
+          while (i < lines.length && !lines[i].trim().startsWith('```')) {
+            code.push(lines[i]);
+            i += 1;
+          }
+          if (i < lines.length) i += 1;
+          output.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+          continue;
+        }
+
+        const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+        if (heading) {
+          const level = heading[1].length;
+          output.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+          i += 1;
+          continue;
+        }
+
+        if (trimmed.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+          const headers = splitTableRow(trimmed);
+          const rows = [];
+          i += 2;
+          while (i < lines.length && lines[i].trim().includes('|')) {
+            rows.push(splitTableRow(lines[i]));
+            i += 1;
+          }
+          output.push('<table>');
+          output.push(`<thead><tr>${headers.map(cell => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead>`);
+          output.push('<tbody>');
+          rows.forEach(row => {
+            output.push(`<tr>${row.map(cell => `<td>${renderInline(cell)}</td>`).join('')}</tr>`);
+          });
+          output.push('</tbody></table>');
+          continue;
+        }
+
+        if (/^[-*]\s+/.test(trimmed)) {
+          const items = [];
+          while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+            items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
+            i += 1;
+          }
+          output.push(`<ul>${items.map(item => `<li>${renderInline(item)}</li>`).join('')}</ul>`);
+          continue;
+        }
+
+        if (/^\d+\.\s+/.test(trimmed)) {
+          const items = [];
+          while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+            items.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
+            i += 1;
+          }
+          output.push(`<ol>${items.map(item => `<li>${renderInline(item)}</li>`).join('')}</ol>`);
+          continue;
+        }
+
+        const paragraph = [trimmed];
+        i += 1;
+        while (
+          i < lines.length &&
+          lines[i].trim() &&
+          !/^(#{1,4})\s+/.test(lines[i].trim()) &&
+          !/^[-*]\s+/.test(lines[i].trim()) &&
+          !/^\d+\.\s+/.test(lines[i].trim()) &&
+          !lines[i].trim().startsWith('```') &&
+          !(lines[i].trim().includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1]))
+        ) {
+          paragraph.push(lines[i].trim());
+          i += 1;
+        }
+        output.push(`<p>${renderInline(paragraph.join(' '))}</p>`);
+      }
+
+      return output.join('');
+    }
+
+    function addCollapsibleLog(title, detail, meta = '', kind = '') {
+      tickEvent();
+      const div = document.createElement('div');
+      div.className = `event ${kind}`.trim();
+      const safeDetail = String(detail || '');
+      div.innerHTML = `<div class="event-title"><span></span><span class="event-meta"></span></div><div class="event-preview"></div>`;
+      div.querySelector('.event-title span').textContent = title;
+      div.querySelector('.event-meta').textContent = meta;
+      div.querySelector('.event-preview').textContent = safeDetail;
+      if (safeDetail.length > COLLAPSE_LIMIT) {
+        div.querySelector('.event-preview').textContent = safeDetail.slice(0, COLLAPSE_LIMIT) + '...';
+        const details = document.createElement('details');
+        details.className = 'event-details';
+        details.innerHTML = `<summary>展开完整输出（${safeDetail.length} 字）</summary><pre></pre>`;
+        details.querySelector('pre').textContent = safeDetail;
+        div.appendChild(details);
+      }
+      log.prepend(div);
+    }
+
+    function addLog(title, detail) {
+      addCollapsibleLog(title, detail);
+    }
+
+    function activateReportTab(section) {
+      reportTabs.querySelectorAll('.report-tab').forEach(tab => {
+        const active = tab.dataset.section === section;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+        tab.tabIndex = active ? 0 : -1;
+      });
+      reportPanels.querySelectorAll('.report-article').forEach(panel => {
+        panel.hidden = panel.dataset.section !== section;
+      });
+    }
+
+    function ensureReportTab(section) {
+      let tab = reportTabs.querySelector(`[data-section="${section}"]`);
+      if (!tab) {
+        tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'report-tab';
+        tab.dataset.section = section;
+        tab.role = 'tab';
+        tab.textContent = reportTitle(section);
+        tab.addEventListener('click', () => activateReportTab(section));
+        reportTabs.appendChild(tab);
+      }
+      return tab;
+    }
+
+    function upsertReport(section, content) {
+      reports.querySelector('.empty-state')?.remove();
+      ensureReportTab(section);
+      let article = reportPanels.querySelector(`[data-section="${section}"]`);
+      if (!article) {
+        article = document.createElement('article');
+        article.className = 'report-article';
+        article.dataset.section = section;
+        article.role = 'tabpanel';
+        article.innerHTML = `<h3></h3><div class="markdown"></div>`;
+        reportPanels.appendChild(article);
+      }
+      article.querySelector('h3').textContent = reportTitle(section);
+      article.querySelector('.markdown').innerHTML = renderMarkdown(content);
+      activateReportTab(section);
+    }
+
+    function handle(payload) {
+      const event = payload.event;
+      const data = payload.data || {};
+      if (event === 'run_started') {
+        const analysts = data.analysts || [];
+        resetTeamBoard(analysts);
+        setRunState('分析中', 'running');
+        currentAgent.textContent = '团队启动';
+        status.textContent = `分析中：${data.ticker} / ${data.trade_date}`;
+        addCollapsibleLog('任务启动', `${data.ticker} ${analysts.map(key => MODULE_LABELS[key] || key).join('、')}`, '团队', 'active');
+      } else if (event === 'tool_called') {
+        setRunState('分析中', 'running');
+        addCollapsibleLog('工具调用', `${data.tool} ${JSON.stringify(data.args)}`, '工具', 'active');
+      } else if (event === 'agent_message') {
+        setRunState('分析中', 'running');
+        addCollapsibleLog('Agent 输出', data.content, data.message_type || 'Agent', 'active');
+      } else if (event === 'report_section_updated') {
+        const roleKey = SECTION_TO_ROLE[data.section];
+        if (roleKey) markRole(roleKey, 'done');
+        upsertReport(data.section, data.content);
+        addCollapsibleLog('报告更新', `${TEAM_ROLES[roleKey]?.label || data.section} 交付了 ${data.section}`, '协作轨迹', 'done');
+      } else if (event === 'run_completed') {
+        streamDone = true;
+        Object.keys(roleStates).forEach(key => { roleStates[key] = 'done'; });
+        renderTeamBoard();
+        setRunState('分析完成', 'done');
+        currentAgent.textContent = '已结束';
+        status.textContent = '分析完成';
+        addCollapsibleLog('完成', '最终状态已生成，团队分析已结束。', '系统', 'done');
+        run.disabled = false;
+        if (source) source.close();
+      } else if (event === 'run_failed') {
+        streamDone = true;
+        const detail = `${data.error_type || 'Error'}: ${data.message || '未知错误'}`;
+        setRunState('分析失败', 'failed');
+        currentAgent.textContent = '已停止';
+        status.textContent = `分析失败：${detail}`;
+        addCollapsibleLog('错误', detail, '系统', 'error');
+        run.disabled = false;
+        if (source) source.close();
+      }
+    }
+
+    function resetRunView() {
+      if (source) source.close();
+      log.textContent = '';
+      reports.innerHTML = '<div class="empty-state">等待报告生成</div><div class="report-tabs" id="report-tabs" role="tablist" aria-label="报告页签"></div><div class="report-panels" id="report-panels"></div>';
+      reportTabs = document.getElementById('report-tabs');
+      reportPanels = document.getElementById('report-panels');
+      eventTotal = 0;
+      eventCount.textContent = '0';
+      currentAgent.textContent = '连接中';
+      setRunState('连接中', 'running');
+      resetTeamBoard(selectedAnalystList());
+    }
+
+    run.addEventListener('click', () => {
+      resetRunView();
+      run.disabled = true;
+      streamDone = false;
+      status.textContent = '连接中';
+      const params = new URLSearchParams({
+        ticker: document.getElementById('ticker').value.trim(),
+        trade_date: date.value,
+        analysts: getSelectedAnalysts()
+      });
+      source = new EventSource(`/api/events?${params}`);
+      ['run_started', 'tool_called', 'agent_message', 'report_section_updated', 'run_completed', 'run_failed'].forEach(name => {
+        source.addEventListener(name, evt => handle(JSON.parse(evt.data)));
+      });
+      source.onerror = () => {
+        if (streamDone) return;
+        setRunState('连接中断', 'failed');
+        currentAgent.textContent = '已停止';
+        status.textContent = '连接中断或服务端报错';
+        run.disabled = false;
+        if (source) source.close();
+      };
+    });
+
+    resetTeamBoard(selectedAnalystList());
+  </script>
+</body>
+</html>

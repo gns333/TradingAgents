@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
+from tradingagents.agents.analysts import sentiment_analyst as sentiment_module
 from tradingagents.agents.analysts.sentiment_analyst import create_sentiment_analyst
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
@@ -390,6 +391,30 @@ class TestSentimentAnalystAgent:
         captured = {}
         create_sentiment_analyst(_structured_sentiment_llm(captured))(_make_sentiment_state())
         assert any("NVDA" in str(m) for m in captured["prompt"])
+
+    def test_a_share_sentiment_uses_china_sources_only(self):
+        captured = {}
+        state = _make_sentiment_state()
+        state["company_of_interest"] = "600519.SH"
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(sentiment_module.get_news, "func", lambda *args: "CHINA_NEWS")
+            china_social = MagicMock(return_value="CHINA_SOCIAL")
+            stocktwits = MagicMock(return_value="STOCKTWITS")
+            reddit = MagicMock(return_value="REDDIT")
+            mp.setattr(sentiment_module, "fetch_china_social_sentiment", china_social)
+            mp.setattr(sentiment_module, "fetch_stocktwits_messages", stocktwits)
+            mp.setattr(sentiment_module, "fetch_reddit_posts", reddit)
+
+            create_sentiment_analyst(_structured_sentiment_llm(captured))(state)
+
+        china_social.assert_called_once_with("600519.SH", "2026-01-08", "2026-01-15", limit=30)
+        stocktwits.assert_not_called()
+        reddit.assert_not_called()
+        rendered_prompt = "\n".join(str(m) for m in captured["prompt"])
+        assert "中国大陆社区/热度源" in rendered_prompt
+        assert "东方财富、雪球、同花顺" in rendered_prompt
+        assert "CHINA_SOCIAL" in rendered_prompt
 
     def test_falls_back_to_freetext_when_structured_unavailable(self):
         plain = "**Overall Sentiment:** **Bearish** (Score: 3.0/10)\n**Confidence:** Low\n\nLimited data."

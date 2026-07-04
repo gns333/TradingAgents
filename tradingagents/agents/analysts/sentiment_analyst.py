@@ -5,13 +5,12 @@ the old version had a prompt that demanded social-media analysis but the
 only tool available was Yahoo Finance news — which led LLMs to fabricate
 Reddit/X/StockTwits content under prompt pressure (verified live).
 
-The redesigned agent pre-fetches three complementary data sources before
-the LLM is invoked and injects them into the prompt as structured blocks:
+The redesigned agent pre-fetches complementary data sources before the LLM is
+invoked and injects them into the prompt as structured blocks:
 
-  1. News headlines     — Yahoo Finance (institutional framing)
-  2. StockTwits messages — retail-trader posts indexed by cashtag, with
-                           user-labeled Bullish/Bearish sentiment tags
-  3. Reddit posts        — r/wallstreetbets, r/stocks, r/investing
+  * Global/US symbols: Yahoo/news + StockTwits + Reddit.
+  * Mainland China A-shares: configured A-share news + China-only signals from
+    Eastmoney, Xueqiu, and Tonghuashun.
 
 The agent does not use tool-calling; the data is in the prompt from
 turn 0. Output uses the structured-output pattern (json_schema for
@@ -39,6 +38,8 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+from tradingagents.dataflows.china_social import fetch_china_social_sentiment
+from tradingagents.dataflows.china_symbol_utils import parse_china_symbol
 from tradingagents.dataflows.reddit import fetch_reddit_posts
 from tradingagents.dataflows.stocktwits import fetch_stocktwits_messages
 
@@ -63,21 +64,29 @@ def create_sentiment_analyst(llm):
         start_date = _seven_days_back(end_date)
         instrument_context = get_instrument_context_from_state(state)
 
-        # Pre-fetch all three sources. Each fetcher degrades gracefully and
-        # returns a string (no exceptions surface from here), so the LLM
-        # always sees something — either real data or a clear placeholder.
+        # Pre-fetch sources before the LLM runs. A-shares use Mainland China
+        # community/heat sources only; global symbols keep StockTwits/Reddit.
         news_block = get_news.func(ticker, start_date, end_date)
-        stocktwits_block = fetch_stocktwits_messages(ticker, limit=30)
-        reddit_block = fetch_reddit_posts(ticker)
-
-        system_message = _build_system_message(
-            ticker=ticker,
-            start_date=start_date,
-            end_date=end_date,
-            news_block=news_block,
-            stocktwits_block=stocktwits_block,
-            reddit_block=reddit_block,
-        )
+        if parse_china_symbol(ticker) is not None:
+            china_social_block = fetch_china_social_sentiment(ticker, start_date, end_date, limit=30)
+            system_message = _build_china_system_message(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                news_block=news_block,
+                china_social_block=china_social_block,
+            )
+        else:
+            stocktwits_block = fetch_stocktwits_messages(ticker, limit=30)
+            reddit_block = fetch_reddit_posts(ticker)
+            system_message = _build_system_message(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                news_block=news_block,
+                stocktwits_block=stocktwits_block,
+                reddit_block=reddit_block,
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -179,6 +188,61 @@ Fill the following fields:
 - **overall_score**: A number from 0 (maximally bearish) to 10 (maximally bullish); 5 is neutral. Keep it consistent with overall_band.
 - **confidence**: low / medium / high, based on data quality and sample size.
 - **narrative**: Full source-by-source breakdown, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment signals (direction, source, supporting evidence).
+
+{get_language_instruction()}"""
+
+
+def _build_china_system_message(
+    *,
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    news_block: str,
+    china_social_block: str,
+) -> str:
+    """Assemble the A-share sentiment prompt with China-only source blocks."""
+    return f"""You are a financial market sentiment analyst focused on Mainland China A-shares. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing only on the China-market sources that have already been collected for you.
+
+## Data sources (pre-fetched, in this prompt)
+
+### 个股新闻资讯 — configured A-share news source
+Institutional/event framing for the selected A-share. Treat this as factual news flow, not community opinion.
+
+<start_of_china_news>
+{news_block}
+<end_of_china_news>
+
+### 中国大陆社区/热度源 — 东方财富、雪球、同花顺
+Retail attention and discussion/heat signals. 东方财富 is Eastmoney/Guba heat and keyword ranking data; 雪球 is Xueqiu heat ranking data; 同花顺 is Tonghuashun ranking/technical heat signal data where AKShare does not expose comment-thread text.
+
+<start_of_china_social>
+{china_social_block}
+<end_of_china_social>
+
+## How to analyze this data (best practices)
+
+1. **Keep source boundaries explicit.** Separate hard news events from retail heat rankings, keywords, discussion rankings, and technical/ranking signals.
+
+2. **Use 东方财富 as a retail attention signal.** Rising Guba popularity, hot keywords, and fan/heat changes can show what mainland retail investors are talking about, but they are not the same as confirmed fundamentals.
+
+3. **Use 雪球 rankings as discussion/attention signals.** If the stock appears in discussion, follow, or deal-sharing rankings, explain what that implies about breadth of attention. If it does not appear, treat the absence as weak evidence rather than a bearish event.
+
+4. **Use 同花顺 rankings cautiously.** AKShare exposes Tonghuashun ranking and technical heat boards here, not comment text. Treat hits in rising/falling/volume boards as market-attention context and label them accordingly.
+
+5. **Look for cross-source confirmation.** A stronger signal needs the same narrative to appear in news plus at least one retail/heat source. If sources conflict, call the read Mixed rather than forcing a bullish/bearish answer.
+
+6. **Be honest about data limits.** If a source returns DATA_UNAVAILABLE or a ranking snapshot has no match for the ticker, explicitly lower confidence and explain the missing coverage.
+
+7. **Past sentiment is not predictive.** Frame your conclusions as a sentiment/attention signal for the trader to weigh alongside fundamentals and technicals, not as a price call.
+
+## Output fields
+
+Fill the following fields:
+
+- **overall_band**: Exactly one of Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish. Use Mixed when sources point in clearly different directions; Neutral only when all sources are genuinely silent.
+- **overall_score**: A number from 0 (maximally bearish) to 10 (maximally bullish); 5 is neutral. Keep it consistent with overall_band.
+- **confidence**: low / medium / high, based on data quality and sample size.
+- **narrative**: Full source-by-source breakdown for 东方财富、雪球、同花顺 and news, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment/attention signals (direction, source, supporting evidence).
 
 {get_language_instruction()}"""
 

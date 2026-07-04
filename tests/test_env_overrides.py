@@ -13,6 +13,7 @@ def _reload_with_env(monkeypatch, **overrides):
     """Set/clear env vars then reload default_config to re-evaluate DEFAULT_CONFIG."""
     for key in list(default_config_module._ENV_OVERRIDES):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("TRADINGAGENTS_MARKET_PROFILE", raising=False)
     for key, val in overrides.items():
         monkeypatch.setenv(key, val)
     return importlib.reload(default_config_module)

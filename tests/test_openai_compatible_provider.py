@@ -56,6 +56,22 @@ def test_optional_key_from_env(monkeypatch):
 
 
 @pytest.mark.unit
+def test_config_api_key_takes_precedence_over_missing_env(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    llm = create_llm_client(
+        provider="deepseek",
+        model="deepseek-chat",
+        api_key="db-key",
+    ).get_llm()
+    key = (
+        llm.openai_api_key.get_secret_value()
+        if hasattr(llm.openai_api_key, "get_secret_value")
+        else llm.openai_api_key
+    )
+    assert key == "db-key"
+
+
+@pytest.mark.unit
 def test_any_model_accepted_no_forced_key():
     assert validate_model("openai_compatible", "literally-anything") is True
     # The key env exists (read for keyed relays) but the provider is marked

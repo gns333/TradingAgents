@@ -538,6 +538,10 @@
           <input id="trade-date" type="date">
         </div>
         <div class="field">
+          <label class="field-label" for="access-email">访问邮箱</label>
+          <input id="access-email" autocomplete="email" placeholder="白名单启用后需要">
+        </div>
+        <div class="field">
           <label class="field-label">分析模块</label>
           <div class="checkbox-group" id="analyst-options">
             <label class="check-option"><input type="checkbox" name="analyst" value="market" checked>市场</label>
@@ -945,6 +949,8 @@
         trade_date: date.value,
         analysts: getSelectedAnalysts()
       });
+      const accessEmail = document.getElementById('access-email').value.trim();
+      if (accessEmail) params.set('access_email', accessEmail);
       source = new EventSource(`/api/events?${params}`);
       ['run_started', 'tool_called', 'agent_message', 'report_section_updated', 'run_completed', 'run_failed'].forEach(name => {
         source.addEventListener(name, evt => handle(JSON.parse(evt.data)));

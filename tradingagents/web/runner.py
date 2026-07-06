@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
+from .admin_store import get_admin_store
 from .events import AnalysisEvent
 
 
@@ -141,12 +142,26 @@ def create_graph_for_request(
     graph_factory: Callable[..., Any] | None = None,
 ) -> Any:
     """Create TradingAgentsGraph lazily so importing web modules stays lightweight."""
+    use_admin_runtime_config = graph_factory is None
     if graph_factory is None:
         from tradingagents.default_config import DEFAULT_CONFIG
         from tradingagents.graph.trading_graph import TradingAgentsGraph
 
         graph_factory = TradingAgentsGraph
         config = dict(DEFAULT_CONFIG if config is None else config)
+
+    runtime_model = get_admin_store().get_default_runtime_model() if use_admin_runtime_config else None
+    if runtime_model is not None:
+        config = dict(config or {})
+        config.update(
+            {
+                "llm_provider": runtime_model.provider,
+                "quick_think_llm": runtime_model.quick_model,
+                "deep_think_llm": runtime_model.deep_model,
+                "backend_url": runtime_model.base_url,
+                "api_key": runtime_model.api_key,
+            }
+        )
 
     return graph_factory(
         selected_analysts=list(request.analysts),

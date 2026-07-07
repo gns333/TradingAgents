@@ -245,9 +245,12 @@ class AdminStore:
 
     def is_identity_allowed(self, email: str | None = None, uid: str | None = None) -> bool:
         with self._connect() as conn:
+            protected = self._get_setting(conn, "admin_password_hash") is not None
+            if not protected:
+                return True
             total = conn.execute("SELECT COUNT(*) AS count FROM access_whitelist").fetchone()["count"]
             if total == 0:
-                return True
+                return False
             row = conn.execute(
                 """
                 SELECT status FROM access_whitelist

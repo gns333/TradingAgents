@@ -43,3 +43,23 @@ def test_admin_api_initializes_login_and_saves_masked_model_config(tmp_path: Pat
     models = client.get("/api/admin/model-configs", headers=headers).json()
     assert "sk-live-secret" not in str(models)
     assert models["items"][0]["api_key_masked"] == "sk-l****cret"
+
+
+def test_events_require_whitelisted_identity_after_admin_setup(tmp_path: Path, monkeypatch):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.set_admin_password("correct-horse")
+    monkeypatch.setattr(api, "get_admin_store", lambda: store)
+    client = TestClient(api.create_app())
+
+    response = client.get(
+        "/api/events",
+        params={
+            "ticker": "600519.SH",
+            "trade_date": "2026-07-08",
+            "analysts": "market",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "AccessDenied" in response.text
+    assert "白名单" in response.text

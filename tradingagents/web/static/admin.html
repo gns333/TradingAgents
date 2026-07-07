@@ -329,21 +329,26 @@
     }
 
     authSubmit.addEventListener('click', async () => {
-      const status = await api('/api/admin/status');
-      const endpoint = status.password_configured ? '/api/admin/login' : '/api/admin/setup';
-      await api(endpoint, { method: 'POST', body: JSON.stringify({ password: adminPassword.value }) });
-      if (!status.password_configured) {
-        authNote.textContent = '初始化完成，请登录';
-        authSubmit.textContent = '登录';
+      try {
+        const status = await api('/api/admin/status');
+        const endpoint = status.password_configured ? '/api/admin/login' : '/api/admin/setup';
+        await api(endpoint, { method: 'POST', body: JSON.stringify({ password: adminPassword.value }) });
+        if (!status.password_configured) {
+          authNote.textContent = '初始化完成，请登录';
+          authSubmit.textContent = '登录';
+          adminPassword.value = '';
+          return;
+        }
+        const login = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: adminPassword.value }) });
+        adminToken = login.token;
+        localStorage.setItem('ta_admin_token', adminToken);
         adminPassword.value = '';
-        return;
+        showAdmin();
+        await loadAdminData();
+      } catch (err) {
+        authNote.textContent = err.message;
+        authNote.classList.add('warn');
       }
-      const login = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: adminPassword.value }) });
-      adminToken = login.token;
-      localStorage.setItem('ta_admin_token', adminToken);
-      adminPassword.value = '';
-      showAdmin();
-      await loadAdminData();
     });
 
     function modelPayload() {

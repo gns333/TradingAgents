@@ -62,7 +62,7 @@ def create_app():
     def _password_from_payload(payload: dict[str, Any]) -> str:
         password = str(payload.get("password") or "")
         if len(password) < 8:
-            raise HTTPException(status_code=400, detail="admin password must be at least 8 characters")
+            raise HTTPException(status_code=400, detail="管理员密码至少需要 8 位")
         return password
 
     @app.post("/api/admin/setup")

@@ -108,6 +108,17 @@ class AdminStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS analysis_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    trade_date TEXT NOT NULL,
+                    analysts TEXT NOT NULL DEFAULT '[]',
+                    sections TEXT NOT NULL DEFAULT '{}',
+                    decision TEXT NOT NULL DEFAULT '',
+                    owner TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
                 """
             )
             if self._get_setting(conn, "encryption_key") is None:
@@ -394,6 +405,76 @@ class AdminStore:
         out.pop("api_key_nonce", None)
         out["enabled"] = bool(out["enabled"])
         out["is_default"] = bool(out["is_default"])
+        return out
+
+    # ------------------------------------------------------------------
+    # Analysis report history
+    # ------------------------------------------------------------------
+    def save_analysis_report(self, payload: dict[str, Any]) -> dict[str, Any]:
+        ticker = str(payload.get("ticker") or "").strip()
+        if not ticker:
+            raise ValueError("ticker is required")
+        trade_date = str(payload.get("trade_date") or "").strip()
+        analysts = json.dumps(payload.get("analysts") or [], ensure_ascii=False)
+        sections_map = payload.get("sections") or {}
+        if not isinstance(sections_map, dict):
+            raise ValueError("sections must be a mapping of section -> content")
+        # Drop empty sections so the history stays meaningful.
+        clean_sections = {
+            str(key): str(value)
+            for key, value in sections_map.items()
+            if value and str(value).strip()
+        }
+        sections = json.dumps(clean_sections, ensure_ascii=False)
+        decision = str(payload.get("decision") or "").strip()
+        owner = str(payload.get("owner") or "").strip()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO analysis_reports (
+                    ticker, trade_date, analysts, sections, decision, owner, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (ticker, trade_date, analysts, sections, decision, owner, _now()),
+            )
+            row = conn.execute(
+                "SELECT * FROM analysis_reports WHERE id = ?", (cur.lastrowid,)
+            ).fetchone()
+            conn.commit()
+        return self._report_row(row, include_sections=True)
+
+    def list_analysis_reports(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analysis_reports ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [self._report_row(row, include_sections=False) for row in rows]
+
+    def get_analysis_report(self, item_id: int) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM analysis_reports WHERE id = ?", (int(item_id),)
+            ).fetchone()
+        if row is None:
+            return None
+        return self._report_row(row, include_sections=True)
+
+    def delete_analysis_report(self, item_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM analysis_reports WHERE id = ?", (int(item_id),))
+            conn.commit()
+
+    def _report_row(self, row: sqlite3.Row, include_sections: bool) -> dict[str, Any]:
+        out = dict(row)
+        out["analysts"] = json.loads(out.get("analysts") or "[]")
+        sections = json.loads(out.get("sections") or "{}")
+        if include_sections:
+            out["sections"] = sections
+        else:
+            out.pop("sections", None)
+            out["section_keys"] = list(sections.keys())
         return out
 
 

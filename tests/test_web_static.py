@@ -1,62 +1,57 @@
-"""Static web UI behavior checks."""
+"""Static web UI behavior checks for the split workbench assets."""
 
 from pathlib import Path
 import unittest
 
 
-class WebStaticTests(unittest.TestCase):
-    def test_index_handles_run_failed_event(self):
-        html = Path("tradingagents/web/static/index.html").read_text(encoding="utf-8")
+STATIC_DIR = Path("tradingagents/web/static")
 
-        self.assertIn("run_failed", html)
-        self.assertIn("error_type", html)
-        self.assertIn("streamDone", html)
+
+class WebStaticTests(unittest.TestCase):
+    def setUp(self):
+        self.html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        self.js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    def test_index_handles_run_failed_event(self):
+        self.assertIn("run_failed", self.js)
+        self.assertIn("error_type", self.js)
+        self.assertIn("streamDone", self.js)
 
     def test_analysis_modules_are_checkboxes(self):
-        html = Path("tradingagents/web/static/index.html").read_text(encoding="utf-8")
-
-        self.assertIn('type="checkbox"', html)
-        self.assertIn('value="market"', html)
-        self.assertIn('value="news"', html)
-        self.assertIn('value="fundamentals"', html)
-        self.assertIn("getSelectedAnalysts", html)
+        self.assertIn('type="checkbox"', self.js)
+        self.assertIn('value="market"', self.js)
+        self.assertIn('value="news"', self.js)
+        self.assertIn('value="fundamentals"', self.js)
+        self.assertIn("getSelectedAnalysts", self.js)
 
     def test_reports_render_markdown(self):
-        html = Path("tradingagents/web/static/index.html").read_text(encoding="utf-8")
-
-        self.assertIn("function renderMarkdown", html)
-        self.assertIn("article.className = 'report-article'", html)
-        self.assertIn("article.querySelector('.markdown').innerHTML = renderMarkdown(content);", html)
-        self.assertIn("<table>", html)
+        self.assertIn("function renderMarkdown(markdown)", self.js)
+        self.assertIn("panel.className = 'report-article markdown'", self.js)
+        self.assertIn("panel.innerHTML = renderMarkdown(sectionsMap[section] || '')", self.js)
+        self.assertIn("output.push('<table>')", self.js)
 
     def test_process_output_collapses_and_agent_status_is_visible(self):
-        html = Path("tradingagents/web/static/index.html").read_text(encoding="utf-8")
-
-        self.assertIn('id="run-state"', html)
-        self.assertIn('id="current-agent"', html)
-        self.assertIn('id="team-board"', html)
-        self.assertIn("function addCollapsibleLog", html)
-        self.assertIn("safeDetail.length > COLLAPSE_LIMIT", html)
-        self.assertIn("document.createElement('details')", html)
-        self.assertIn("团队协作", html)
+        self.assertIn('id="global-run-state"', self.html)
+        self.assertIn('id="current-agent"', self.js)
+        self.assertIn('id="team-board"', self.js)
+        self.assertIn("function addCollapsibleLog", self.js)
+        self.assertIn("safeDetail.length > COLLAPSE_LIMIT", self.js)
+        self.assertIn("document.createElement('details')", self.js)
+        self.assertIn("团队协作", self.js)
 
     def test_team_roles_are_mapped_from_report_sections(self):
-        html = Path("tradingagents/web/static/index.html").read_text(encoding="utf-8")
-
-        self.assertIn("const TEAM_ROLES", html)
-        self.assertIn("market_report", html)
-        self.assertIn("final_trade_decision", html)
-        self.assertIn("组合经理", html)
+        self.assertIn("const TEAM_ROLES", self.js)
+        self.assertIn("market_report", self.js)
+        self.assertIn("final_trade_decision", self.js)
+        self.assertIn("组合经理", self.js)
 
     def test_reports_are_grouped_into_tabs(self):
-        html = Path("tradingagents/web/static/index.html").read_text(encoding="utf-8")
-
-        self.assertIn('id="report-tabs"', html)
-        self.assertIn('id="report-panels"', html)
-        self.assertIn('role="tablist"', html)
-        self.assertIn("function activateReportTab", html)
-        self.assertIn("function ensureReportTab", html)
-        self.assertIn("activateReportTab(section)", html)
+        self.assertIn("function buildReportTabs", self.js)
+        self.assertIn("tabs.className = 'report-tabs'", self.js)
+        self.assertIn("tabs.setAttribute('role', 'tablist')", self.js)
+        self.assertIn("tab.setAttribute('role', 'tab')", self.js)
+        self.assertIn("tab.addEventListener('click', () => paint(section))", self.js)
+        self.assertIn("buildReportTabs(root, state.reports", self.js)
 
 
 if __name__ == "__main__":

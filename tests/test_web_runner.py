@@ -2,7 +2,11 @@
 
 import unittest
 
-from tradingagents.web.runner import AnalysisRequest, stream_analysis_events
+from tradingagents.web.runner import (
+    AnalysisRequest,
+    config_for_request,
+    stream_analysis_events,
+)
 
 
 class FakeToolCall:
@@ -75,6 +79,33 @@ class FailingGraph(FakeGraph):
 
 
 class WebRunnerTests(unittest.TestCase):
+    def test_a_share_request_uses_china_mainland_data_vendors(self):
+        config = config_for_request(
+            AnalysisRequest(ticker="600519.SH", trade_date="2026-07-11")
+        )
+
+        self.assertEqual(config["market_profile"], "china_mainland")
+        self.assertEqual(
+            config["data_vendors"]["core_stock_apis"],
+            "akshare,baostock,yfinance",
+        )
+        self.assertEqual(
+            config["data_vendors"]["technical_indicators"],
+            "akshare,baostock,yfinance",
+        )
+        self.assertEqual(
+            config["data_vendors"]["fundamental_data"],
+            "akshare,baostock,yfinance",
+        )
+
+    def test_non_a_share_request_keeps_default_market_profile(self):
+        config = config_for_request(
+            AnalysisRequest(ticker="AAPL", trade_date="2026-07-11")
+        )
+
+        self.assertEqual(config["market_profile"], "default")
+        self.assertEqual(config["data_vendors"]["core_stock_apis"], "yfinance")
+
     def test_stream_analysis_events_emits_progress_reports_and_completion(self):
         graph = FakeGraph()
         request = AnalysisRequest(

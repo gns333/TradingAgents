@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
@@ -26,6 +27,27 @@ class AnalysisRequest:
     trade_date: str
     asset_type: str = "stock"
     analysts: tuple[str, ...] = ("market", "social", "news", "fundamentals")
+
+
+def config_for_request(
+    request: AnalysisRequest,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve web-run configuration, preferring China vendors for A shares."""
+    from tradingagents.dataflows.china_symbol_utils import parse_china_symbol
+    from tradingagents.default_config import DEFAULT_CONFIG, MARKET_PROFILES
+
+    resolved = deepcopy(DEFAULT_CONFIG if config is None else config)
+    is_a_share = request.asset_type == "stock" and parse_china_symbol(request.ticker)
+    if not is_a_share or resolved.get("market_profile") == "china_mainland":
+        return resolved
+
+    for key, value in MARKET_PROFILES["china_mainland"].items():
+        if isinstance(value, dict) and isinstance(resolved.get(key), dict):
+            resolved[key] = {**resolved[key], **deepcopy(value)}
+        else:
+            resolved[key] = deepcopy(value)
+    return resolved
 
 
 def _content_to_text(content: Any) -> str:
@@ -144,11 +166,10 @@ def create_graph_for_request(
     """Create TradingAgentsGraph lazily so importing web modules stays lightweight."""
     use_admin_runtime_config = graph_factory is None
     if graph_factory is None:
-        from tradingagents.default_config import DEFAULT_CONFIG
         from tradingagents.graph.trading_graph import TradingAgentsGraph
 
         graph_factory = TradingAgentsGraph
-        config = dict(DEFAULT_CONFIG if config is None else config)
+    config = config_for_request(request, config)
 
     runtime_model = get_admin_store().get_default_runtime_model() if use_admin_runtime_config else None
     if runtime_model is not None:

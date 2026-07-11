@@ -47,6 +47,7 @@ bedrock = [
 ]
 china = [
     "akshare",
+    "baostock",
 ]
 web = [
     "fastapi>=0.115",

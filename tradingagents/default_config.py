@@ -43,9 +43,9 @@ MARKET_PROFILES = {
             "人民币 汇率 大宗商品 出口 消费",
         ],
         "data_vendors": {
-            "core_stock_apis": "akshare,yfinance",
-            "technical_indicators": "akshare,yfinance",
-            "fundamental_data": "akshare,yfinance",
+            "core_stock_apis": "akshare,baostock,yfinance",
+            "technical_indicators": "akshare,baostock,yfinance",
+            "fundamental_data": "akshare,baostock,yfinance",
             "news_data": "akshare,yfinance",
             "macro_data": "akshare",
             "prediction_markets": "polymarket",

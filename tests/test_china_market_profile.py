@@ -1,7 +1,9 @@
 """Mainland-China market profile defaults."""
 
 import importlib
+import tomllib
 import unittest
+from pathlib import Path
 
 import tradingagents.default_config as default_config_module
 
@@ -35,11 +37,29 @@ class ChinaMarketProfileTests(unittest.TestCase):
         self.assertEqual(dc.DEFAULT_CONFIG["quick_think_llm"], "deepseek-v4-flash")
         self.assertEqual(dc.DEFAULT_CONFIG["deep_think_llm"], "deepseek-v4-pro")
         self.assertEqual(dc.DEFAULT_CONFIG["output_language"], "Chinese")
-        self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["core_stock_apis"], "akshare,yfinance")
-        self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["technical_indicators"], "akshare,yfinance")
-        self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["fundamental_data"], "akshare,yfinance")
+        self.assertEqual(
+            dc.DEFAULT_CONFIG["data_vendors"]["core_stock_apis"],
+            "akshare,baostock,yfinance",
+        )
+        self.assertEqual(
+            dc.DEFAULT_CONFIG["data_vendors"]["technical_indicators"],
+            "akshare,baostock,yfinance",
+        )
+        self.assertEqual(
+            dc.DEFAULT_CONFIG["data_vendors"]["fundamental_data"],
+            "akshare,baostock,yfinance",
+        )
         self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["news_data"], "akshare,yfinance")
         self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["macro_data"], "akshare")
+
+    def test_china_optional_dependencies_include_baostock(self):
+        with Path("pyproject.toml").open("rb") as handle:
+            project = tomllib.load(handle)
+
+        china_dependencies = project["project"]["optional-dependencies"]["china"]
+
+        self.assertIn("akshare", china_dependencies)
+        self.assertIn("baostock", china_dependencies)
 
     def test_explicit_env_overrides_china_profile_defaults(self):
         import os

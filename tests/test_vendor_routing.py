@@ -71,6 +71,41 @@ class VendorRoutingTests(unittest.TestCase):
             result = interface.route_to_vendor("get_stock_data", "AAPL", "2026-01-01", "2026-01-10")
         self.assertEqual(result, "AV_DATA")
 
+    def test_china_chain_uses_baostock_after_akshare_failure(self):
+        set_config(
+            {"data_vendors": {"core_stock_apis": "akshare,baostock,yfinance"}}
+        )
+        yahoo = mock.Mock(side_effect=_returns("YAHOO"))
+        with self._route(
+            {
+                "akshare": _raises(ConnectionError("eastmoney down")),
+                "baostock": _returns("BAOSTOCK"),
+                "yfinance": yahoo,
+            }
+        ):
+            result = interface.route_to_vendor(
+                "get_stock_data",
+                "600519.SH",
+                "2026-01-01",
+                "2026-01-10",
+            )
+
+        self.assertEqual(result, "BAOSTOCK")
+        yahoo.assert_not_called()
+
+    def test_baostock_is_registered_only_for_supported_categories(self):
+        supported = {
+            "get_stock_data",
+            "get_indicators",
+            "get_fundamentals",
+            "get_balance_sheet",
+            "get_cashflow",
+            "get_income_statement",
+        }
+
+        for method, vendors in interface.VENDOR_METHODS.items():
+            self.assertEqual("baostock" in vendors, method in supported)
+
     def test_primary_error_is_logged_not_masked(self):
         # #989: primary errors + fallback no-data -> NO_DATA, but the failure
         # must be visible in logs (broken primary not hidden).

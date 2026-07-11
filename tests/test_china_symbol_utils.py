@@ -63,9 +63,13 @@ class ChinaSymbolUtilsTests(unittest.TestCase):
         symbol = parse_china_symbol("600519.SH")
 
         self.assertEqual(symbol.akshare_code, "600519")
+        self.assertEqual(symbol.baostock_code, "sh.600519")
         self.assertEqual(symbol.tushare_code, "600519.SH")
         self.assertEqual(symbol.yahoo_code, "600519.SS")
         self.assertEqual(symbol.prefixed_code, "SH600519")
+
+        self.assertEqual(parse_china_symbol("000001.SZ").baostock_code, "sz.000001")
+        self.assertEqual(parse_china_symbol("430047.BJ").baostock_code, "bj.430047")
 
     def test_non_a_share_symbols_return_none(self):
         self.assertIsNone(parse_china_symbol("AAPL"))

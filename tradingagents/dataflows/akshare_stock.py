@@ -98,28 +98,17 @@ def _stock_history(symbol: ChinaSymbol, start_date: str, end_date: str, adjust: 
     ak = _akshare()
     compact_start = _compact_date(start_date)
     compact_end = _compact_date(end_date)
-    try:
-        df = ak.stock_zh_a_hist(
-            symbol=symbol.akshare_code,
-            period="daily",
-            start_date=compact_start,
-            end_date=compact_end,
-            adjust=adjust,
-        )
-        df.attrs["akshare_source"] = "stock_zh_a_hist"
-        return df
-    except Exception:
-        fallback = getattr(ak, "stock_zh_a_daily", None)
-        if fallback is None:
-            raise
-        df = fallback(
-            symbol=symbol.prefixed_code.lower(),
-            start_date=compact_start,
-            end_date=compact_end,
-            adjust=adjust,
-        )
-        df.attrs["akshare_source"] = "stock_zh_a_daily"
-        return df
+    # Do not fall back to AKShare's Sina endpoint here: it initializes
+    # py_mini_racer, which can terminate the web process on current macOS Python.
+    df = ak.stock_zh_a_hist(
+        symbol=symbol.akshare_code,
+        period="daily",
+        start_date=compact_start,
+        end_date=compact_end,
+        adjust=adjust,
+    )
+    df.attrs["akshare_source"] = "stock_zh_a_hist"
+    return df
 
 
 def get_stock_frame(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:

@@ -23,6 +23,14 @@ from .akshare_stock import (
     get_news as get_akshare_news,
     get_stock as get_akshare_stock,
 )
+from .baostock_stock import (
+    get_balance_sheet as get_baostock_balance_sheet,
+    get_cashflow as get_baostock_cashflow,
+    get_fundamentals as get_baostock_fundamentals,
+    get_income_statement as get_baostock_income_statement,
+    get_indicator as get_baostock_indicator,
+    get_stock as get_baostock_stock,
+)
 from .config import get_config
 from .errors import (
     NoMarketDataError,
@@ -92,6 +100,7 @@ TOOLS_CATEGORIES = {
 VENDOR_LIST = [
     "yfinance",
     "akshare",
+    "baostock",
     "fred",
     "polymarket",
     "alpha_vantage",
@@ -109,33 +118,39 @@ VENDOR_METHODS = {
     # core_stock_apis
     "get_stock_data": {
         "akshare": get_akshare_stock,
+        "baostock": get_baostock_stock,
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
     },
     # technical_indicators
     "get_indicators": {
         "akshare": get_akshare_indicator,
+        "baostock": get_baostock_indicator,
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
     },
     # fundamental_data
     "get_fundamentals": {
         "akshare": get_akshare_fundamentals,
+        "baostock": get_baostock_fundamentals,
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
     },
     "get_balance_sheet": {
         "akshare": get_akshare_balance_sheet,
+        "baostock": get_baostock_balance_sheet,
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
     },
     "get_cashflow": {
         "akshare": get_akshare_cashflow,
+        "baostock": get_baostock_cashflow,
         "alpha_vantage": get_alpha_vantage_cashflow,
         "yfinance": get_yfinance_cashflow,
     },
     "get_income_statement": {
         "akshare": get_akshare_income_statement,
+        "baostock": get_baostock_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
     },

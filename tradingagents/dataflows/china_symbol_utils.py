@@ -54,6 +54,10 @@ class ChinaSymbol:
         return self.canonical
 
     @property
+    def baostock_code(self) -> str:
+        return f"{self.exchange.lower()}.{self.code}"
+
+    @property
     def prefixed_code(self) -> str:
         return f"{self.exchange}{self.code}"
 

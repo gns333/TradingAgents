@@ -126,7 +126,20 @@ def test_stock_query_rejects_empty_rows(monkeypatch):
 
 @pytest.mark.parametrize(
     "indicator",
-    ["close_10_ema", "close_50_sma", "close_200_sma", "rsi", "boll", "boll_ub", "boll_lb"],
+    [
+        "close_10_ema",
+        "close_50_sma",
+        "close_200_sma",
+        "macd",
+        "macds",
+        "macdh",
+        "rsi",
+        "boll",
+        "boll_ub",
+        "boll_lb",
+        "atr",
+        "vwma",
+    ],
 )
 def test_indicator_is_computed_from_baostock_frame(monkeypatch, indicator):
     monkeypatch.setattr(baostock_stock, "get_stock_frame", lambda *args: _sample_ohlcv_frame())
@@ -138,9 +151,48 @@ def test_indicator_is_computed_from_baostock_frame(monkeypatch, indicator):
     assert "2026-07-10" in output
 
 
+def test_baostock_indicator_formulas_match_standard_definitions(monkeypatch):
+    frame = _sample_ohlcv_frame()
+    monkeypatch.setattr(baostock_stock, "get_stock_frame", lambda *args: frame)
+
+    close = frame["Close"]
+    expected_macd = close.ewm(span=12, adjust=False).mean() - close.ewm(
+        span=26, adjust=False
+    ).mean()
+    expected_macds = expected_macd.ewm(span=9, adjust=False).mean()
+    expected_macdh = expected_macd - expected_macds
+    previous_close = close.shift(1)
+    true_range = pd.concat(
+        [
+            frame["High"] - frame["Low"],
+            (frame["High"] - previous_close).abs(),
+            (frame["Low"] - previous_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    expected_atr = true_range.rolling(14).mean()
+    expected_vwma = (close * frame["Volume"]).rolling(20).sum() / frame[
+        "Volume"
+    ].rolling(20).sum()
+
+    expected = {
+        "macd": expected_macd.iloc[-1],
+        "macds": expected_macds.iloc[-1],
+        "macdh": expected_macdh.iloc[-1],
+        "atr": expected_atr.iloc[-1],
+        "vwma": expected_vwma.iloc[-1],
+    }
+    for indicator, value in expected.items():
+        output = baostock_stock.get_indicator(
+            "600519.SH", indicator, "2026-07-10", 1
+        )
+        last_value = float(output.strip().splitlines()[-1].split(",")[-1])
+        assert last_value == pytest.approx(round(value, 4))
+
+
 def test_indicator_rejects_unsupported_name():
     with pytest.raises(ValueError, match="not supported by baostock"):
-        baostock_stock.get_indicator("600519.SH", "macd", "2026-07-10", 30)
+        baostock_stock.get_indicator("600519.SH", "stochrsi", "2026-07-10", 30)
 
 
 def test_fundamentals_combines_available_baostock_datasets(monkeypatch):

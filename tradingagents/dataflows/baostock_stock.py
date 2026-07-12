@@ -138,10 +138,15 @@ def get_indicator(symbol: str, indicator: str, curr_date: str, look_back_days: i
         "close_10_ema",
         "close_50_sma",
         "close_200_sma",
+        "macd",
+        "macds",
+        "macdh",
         "rsi",
         "boll",
         "boll_ub",
         "boll_lb",
+        "atr",
+        "vwma",
     }
     if key not in supported:
         raise ValueError(
@@ -161,11 +166,35 @@ def get_indicator(symbol: str, indicator: str, curr_date: str, look_back_days: i
     elif key.endswith("_ema"):
         window = int(key.split("_")[1])
         values = close.ewm(span=window, adjust=False).mean()
+    elif key in {"macd", "macds", "macdh"}:
+        macd = close.ewm(span=12, adjust=False).mean() - close.ewm(
+            span=26, adjust=False
+        ).mean()
+        signal = macd.ewm(span=9, adjust=False).mean()
+        values = {
+            "macd": macd,
+            "macds": signal,
+            "macdh": macd - signal,
+        }[key]
     elif key == "rsi":
         delta = close.diff()
         gain = delta.clip(lower=0).rolling(14).mean()
         loss = (-delta.clip(upper=0)).rolling(14).mean()
         values = 100 - (100 / (1 + gain / loss))
+    elif key == "atr":
+        previous_close = close.shift(1)
+        true_range = pd.concat(
+            [
+                data["High"] - data["Low"],
+                (data["High"] - previous_close).abs(),
+                (data["Low"] - previous_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        values = true_range.rolling(14).mean()
+    elif key == "vwma":
+        volume = data["Volume"]
+        values = (close * volume).rolling(20).sum() / volume.rolling(20).sum()
     else:
         middle = close.rolling(20).mean()
         std = close.rolling(20).std()

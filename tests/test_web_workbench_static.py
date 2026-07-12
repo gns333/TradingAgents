@@ -79,10 +79,23 @@ def test_workbench_js_contains_analysis_workspace_contract():
     assert "function renderAnalysisWorkspace()" in js
     assert "function parseAnalysisEventData(raw)" in js
     assert "parsed.data || {}" in js
-    assert "function setAnalysisTicker(ticker)" in js
+    assert "function setAnalysisTicker(ticker, name)" in js
     assert "new EventSource" in js
     assert "run_started" in js
     assert "report_section_updated" in js
+
+
+def test_workbench_js_contains_terminal_redesign_contract():
+    html = (STATIC_DIR / "index.html").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text()
+
+    assert 'data-theme="dark"' in html
+    assert 'id="theme-toggle"' in html
+    assert 'id="ticker-bar"' in html
+    assert "function applyTheme(theme)" in js
+    assert "function classifyDecision(text)" in js
+    assert "function decisionBadgeHtml(text)" in js
+    assert "function filteredHistory()" in js
 
 
 def test_workbench_syncs_admin_session_before_opening_event_stream():

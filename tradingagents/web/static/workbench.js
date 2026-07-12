@@ -76,6 +76,7 @@
 
   const state = {
     view: 'analysis',
+    theme: localStorage.getItem('ta_theme') || 'dark',
     adminToken: localStorage.getItem('ta_admin_token') || '',
     adminPasswordConfigured: false,
     identityEmail: localStorage.getItem('ta_identity_email') || '',
@@ -86,12 +87,66 @@
     roleStates: {},
     reports: {},
     currentReportSection: '',
+    activeTicker: { code: '', name: '' },
     history: [],
+    historyFilter: 'all',
+    historyQuery: '',
     historyActiveId: null,
     historyReport: null,
     historyActiveSection: '',
     tickerSearchTimer: null
   };
+
+  // Pipeline order for the Agent team board (analysts first, then managers).
+  const PIPELINE_ORDER = [
+    'market', 'news', 'fundamentals', 'social',
+    'research_manager', 'trader', 'portfolio_manager'
+  ];
+
+  // Map a free-text decision / final report to a Buy / Sell / Hold badge.
+  function classifyDecision(text) {
+    const value = String(text || '').toLowerCase();
+    if (/\b(buy|long|overweight)\b|买入|看多|增持|加仓/.test(value)) return { kind: 'buy', label: '买入' };
+    if (/\b(sell|short|underweight)\b|卖出|看空|减持|清仓|减仓/.test(value)) return { kind: 'sell', label: '卖出' };
+    if (/\b(hold|neutral)\b|持有|观望|中性/.test(value)) return { kind: 'hold', label: '持有' };
+    return null;
+  }
+
+  function decisionBadgeHtml(text) {
+    const decision = classifyDecision(text);
+    if (!decision) return '';
+    return `<span class="decision-badge ${decision.kind}">${decision.label}</span>`;
+  }
+
+  // --- Theme -----------------------------------------------------------------
+  function applyTheme(theme) {
+    state.theme = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', state.theme);
+    localStorage.setItem('ta_theme', state.theme);
+  }
+
+  function toggleTheme() {
+    applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+  }
+
+  // --- Topbar ticker info bar ------------------------------------------------
+  function updateTickerBar() {
+    const bar = qs('#ticker-bar');
+    if (!bar) return;
+    const { code, name } = state.activeTicker;
+    if (!code) {
+      bar.classList.remove('show');
+      bar.innerHTML = '';
+      return;
+    }
+    bar.classList.add('show');
+    bar.innerHTML = `
+      <span class="tk-code"></span>
+      <span class="tk-name"></span>
+    `;
+    bar.querySelector('.tk-code').textContent = code;
+    bar.querySelector('.tk-name').textContent = name || '';
+  }
 
   function qs(selector, root = document) {
     return root.querySelector(selector);
@@ -269,7 +324,6 @@
         <section class="panel form-panel">
           <div class="panel-header">
             <h3>分析参数</h3>
-            <p>选择股票和分析团队</p>
           </div>
           <div class="panel-body">
             <label for="ticker">股票代码</label>
@@ -292,20 +346,7 @@
             <div class="status-box" id="analysis-status">等待开始</div>
           </div>
         </section>
-        <section class="panel run-panel">
-          <div class="panel-header">
-            <h3>Agent 团队</h3>
-            <p id="current-agent">未开始</p>
-          </div>
-          <div class="team-board" id="team-board"></div>
-        </section>
-        <section class="panel timeline-panel">
-          <div class="panel-header">
-            <h3>过程</h3>
-            <p><span id="event-count">0</span> 个事件</p>
-          </div>
-          <div class="timeline" id="log"><div class="empty-state">等待过程事件</div></div>
-        </section>
+
         <section class="panel report-current-panel">
           <div class="panel-header">
             <h3>当前报告</h3>
@@ -313,6 +354,23 @@
           </div>
           <div class="report-viewer" id="report-preview"><div class="empty-state">等待报告生成</div></div>
         </section>
+
+        <div class="analysis-side">
+          <section class="panel run-panel">
+            <div class="panel-header">
+              <h3>Agent 团队</h3>
+              <p id="current-agent">未开始</p>
+            </div>
+            <div class="pipeline" id="team-board"></div>
+          </section>
+          <section class="panel timeline-panel">
+            <div class="panel-header">
+              <h3>过程</h3>
+              <p><span class="event-count" id="event-count">0</span> 个事件</p>
+            </div>
+            <div class="timeline" id="log"><div class="empty-state">等待过程事件</div></div>
+          </section>
+        </div>
       </div>
     `;
     const dateInput = qs('#trade-date');
@@ -322,6 +380,10 @@
     setupTickerAutocomplete();
     resetTeamBoard(selectedAnalystList());
     renderReportPreview();
+    // Seed the topbar ticker bar from the current input value.
+    const seed = qs('#ticker')?.value.trim();
+    if (seed && !state.activeTicker.code) state.activeTicker = { code: seed, name: '' };
+    updateTickerBar();
   }
 
   // --- Ticker autocomplete ---------------------------------------------------
@@ -380,7 +442,7 @@
       option.querySelector('strong').textContent = item.name || item.code;
       option.querySelector('span').textContent = item.code;
       option.addEventListener('click', () => {
-        setAnalysisTicker(item.code);
+        setAnalysisTicker(item.code, item.name);
         hideTickerSuggestions();
         input.focus();
       });
@@ -411,9 +473,11 @@
     return selectedAnalystList().join(',');
   }
 
-  function setAnalysisTicker(ticker) {
+  function setAnalysisTicker(ticker, name) {
     const input = qs('#ticker');
     if (input) input.value = ticker;
+    state.activeTicker = { code: ticker || '', name: name || '' };
+    updateTickerBar();
   }
 
   function resetTeamBoard(analysts) {
@@ -428,17 +492,21 @@
     const board = qs('#team-board');
     if (!board) return;
     board.textContent = '';
-    Object.entries(state.roleStates).forEach(([key, roleState]) => {
+    // Preserve pipeline order rather than object insertion order.
+    PIPELINE_ORDER.filter(key => state.roleStates[key]).forEach(key => {
       const role = TEAM_ROLES[key];
       if (!role) return;
-      const card = document.createElement('div');
-      card.className = `role-card ${roleState}`;
-      card.innerHTML = '<div><strong></strong><span></span></div><p></p>';
-      card.querySelector('strong').textContent = role.label;
-      card.querySelector('span').textContent =
+      const roleState = state.roleStates[key];
+      const node = document.createElement('div');
+      node.className = `pipe-node ${roleState}`;
+      node.innerHTML = '<span class="pipe-dot" aria-hidden="true"></span>'
+        + '<div class="pipe-info"><strong></strong><span></span></div>'
+        + '<span class="pipe-status"></span>';
+      node.querySelector('strong').textContent = role.label;
+      node.querySelector('.pipe-info span').textContent = role.kind;
+      node.querySelector('.pipe-status').textContent =
         roleState === 'active' ? '进行中' : roleState === 'done' ? '已完成' : '待处理';
-      card.querySelector('p').textContent = role.kind;
-      board.appendChild(card);
+      board.appendChild(node);
     });
   }
 
@@ -557,6 +625,10 @@
   function handleAnalysisEvent(event, data) {
     if (event === 'run_started') {
       resetTeamBoard(data.analysts || []);
+      if (data.ticker) {
+        state.activeTicker = { code: data.ticker, name: state.activeTicker.name };
+        updateTickerBar();
+      }
       setRunState('分析中', 'running');
       setText('#current-agent', '团队启动');
       setText('#analysis-status', `分析中：${data.ticker} / ${data.trade_date}`);
@@ -751,7 +823,11 @@
         tab.setAttribute('aria-selected', on ? 'true' : 'false');
         tab.tabIndex = on ? 0 : -1;
       });
-      panel.innerHTML = renderMarkdown(sectionsMap[section] || '');
+      const body = sectionsMap[section] || '';
+      // The final decision gets a Buy/Sell/Hold badge pinned above its report.
+      const badge = section === 'final_trade_decision' ? decisionBadgeHtml(body) : '';
+      panel.innerHTML = (badge ? `<div class="report-summary-head">${badge}</div>` : '')
+        + renderMarkdown(body);
       if (typeof onSelect === 'function') onSelect(section);
     };
 
@@ -820,20 +896,59 @@
             <h3>历史报告</h3>
             <button class="secondary-button compact-button" type="button" id="reload-history">刷新</button>
           </div>
+          <div class="history-filter">
+            <input id="history-search" placeholder="搜索代码或名称" autocomplete="off">
+            <div class="filter-chips" role="group" aria-label="按决策筛选">
+              <button type="button" class="filter-chip" data-filter="all">全部</button>
+              <button type="button" class="filter-chip" data-filter="buy">买入</button>
+              <button type="button" class="filter-chip" data-filter="sell">卖出</button>
+              <button type="button" class="filter-chip" data-filter="hold">持有</button>
+            </div>
+          </div>
           <div class="history-list" id="history-list"></div>
         </section>
         <section class="panel report-detail-panel">
-          <div class="panel-header">
-            <h3 id="history-detail-title">报告详情</h3>
-            <p id="history-detail-meta">从左侧选择一份历史报告</p>
+          <div class="report-summary-head" id="history-summary">
+            <span class="rh-title" id="history-detail-title">报告详情</span>
+            <span class="rh-meta" id="history-detail-meta">从左侧选择一份历史报告</span>
           </div>
           <div class="report-viewer" id="history-detail"><div class="empty-state">选择左侧报告后查看完整内容</div></div>
         </section>
       </div>
     `;
     qs('#reload-history')?.addEventListener('click', loadReportHistory);
+    const search = qs('#history-search');
+    if (search) {
+      search.value = state.historyQuery;
+      search.addEventListener('input', () => {
+        state.historyQuery = search.value.trim();
+        renderHistoryList();
+      });
+    }
+    root.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.classList.toggle('active', chip.dataset.filter === state.historyFilter);
+      chip.addEventListener('click', () => {
+        state.historyFilter = chip.dataset.filter;
+        root.querySelectorAll('.filter-chip').forEach(c =>
+          c.classList.toggle('active', c.dataset.filter === state.historyFilter));
+        renderHistoryList();
+      });
+    });
     renderHistoryList();
     if (state.historyReport) renderHistoryDetail();
+  }
+
+  // Client-side filter over the already-loaded history list.
+  function filteredHistory() {
+    const query = state.historyQuery.toLowerCase();
+    return state.history.filter(item => {
+      if (state.historyFilter !== 'all') {
+        const decision = classifyDecision(item.decision);
+        if (!decision || decision.kind !== state.historyFilter) return false;
+      }
+      if (!query) return true;
+      return `${item.ticker || ''} ${item.name || ''}`.toLowerCase().includes(query);
+    });
   }
 
   function renderHistoryList() {
@@ -843,22 +958,40 @@
       list.innerHTML = '<div class="empty-state">暂无历史报告，完成一次分析后自动归档</div>';
       return;
     }
+    const items = filteredHistory();
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-state">没有符合筛选条件的报告</div>';
+      return;
+    }
     list.textContent = '';
-    state.history.forEach(item => {
+    items.forEach(item => {
       const row = document.createElement('div');
       row.className = `history-item ${item.id === state.historyActiveId ? 'active' : ''}`.trim();
+
       const open = document.createElement('button');
       open.type = 'button';
       open.className = 'history-open';
-      open.innerHTML = '<strong></strong><span></span><small></small>';
+      open.innerHTML = '<div class="ho-top"><strong></strong><span class="ho-date"></span></div>'
+        + '<div class="ho-tags"></div>'
+        + '<small></small>';
       open.querySelector('strong').textContent = historyLabel(item);
-      open.querySelector('span').textContent = item.decision || '已归档报告';
+      open.querySelector('.ho-date').textContent = item.trade_date || (item.created_at || '').slice(0, 10);
+      const tags = open.querySelector('.ho-tags');
+      const badge = decisionBadgeHtml(item.decision);
+      if (badge) {
+        tags.innerHTML = badge;
+      } else {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = '已归档';
+        tags.appendChild(tag);
+      }
       open.querySelector('small').textContent = (item.created_at || '').replace('T', ' ').slice(0, 16);
       open.addEventListener('click', () => openHistoryReport(item.id));
 
       const del = document.createElement('button');
       del.type = 'button';
-      del.className = 'icon-button history-delete';
+      del.className = 'history-delete';
       del.setAttribute('aria-label', '删除报告');
       del.textContent = '删除';
       del.addEventListener('click', () => deleteHistoryReport(item.id));
@@ -889,6 +1022,13 @@
     setText('#history-detail-title', historyLabel(report));
     const analysts = (report.analysts || []).map(key => TEAM_ROLES[key]?.label || key).join('、');
     setText('#history-detail-meta', analysts ? `分析模块：${analysts}` : '完整团队报告');
+    // Surface the archived decision as a badge in the summary head.
+    const summary = qs('#history-summary');
+    if (summary) {
+      summary.querySelector('.decision-badge')?.remove();
+      const badge = decisionBadgeHtml(report.decision);
+      if (badge) summary.insertAdjacentHTML('beforeend', badge);
+    }
     buildReportTabs(detail, report.sections || {}, state.historyActiveSection, section => {
       state.historyActiveSection = section;
     });
@@ -935,72 +1075,66 @@
       .join('');
     root.innerHTML = `
       <div class="workspace-grid admin-grid">
-        <section class="panel admin-session-panel">
-          <div class="panel-header">
-            <h3>后台会话</h3>
-            <p>当前浏览器已通过管理员验证</p>
+        <div class="admin-session-bar">
+          <div class="sess-info">
+            <span class="state-pill done">已登录</span>
+            <p class="helper-text">退出后会清除本地管理员 token，不影响已保存的模型和白名单配置。</p>
           </div>
-          <div class="panel-body admin-session-body">
-            <div>
-              <span class="state-pill done">已登录</span>
-              <p class="helper-text">退出后会清除本地管理员 token，不影响已保存的模型和白名单配置。</p>
+          <button class="secondary-button" type="button" id="admin-logout">退出登录</button>
+        </div>
+        <div class="admin-forms">
+          <section class="panel">
+            <div class="panel-header">
+              <h3>模型配置</h3>
             </div>
-            <button class="secondary-button" type="button" id="admin-logout">退出登录</button>
-          </div>
-        </section>
-        <section class="panel">
-          <div class="panel-header">
-            <h3>模型配置</h3>
-            <p>选择供应商自动带出接口地址，模型下拉选择</p>
-          </div>
-          <div class="panel-body admin-form">
-            <label for="model-provider">供应商</label>
-            <select id="model-provider">${providerOptions}</select>
-            <label for="model-name">显示名称</label>
-            <input id="model-name" value="DeepSeek 默认">
-            <label for="model-base-url">Base URL</label>
-            <input id="model-base-url" readonly>
-            <p class="helper-text" id="model-base-url-hint">官方供应商地址已自动填充。</p>
-            <label for="model-quick">快速模型</label>
-            <select id="model-quick"></select>
-            <label for="model-deep">深度模型</label>
-            <select id="model-deep"></select>
-            <label for="model-api-key">API Key</label>
-            <input id="model-api-key" type="password" autocomplete="off">
-            <button type="button" id="save-model-config">保存模型</button>
-            <div class="status-box" id="model-status">等待保存</div>
-          </div>
-        </section>
-        <section class="panel">
-          <div class="panel-header">
-            <h3>白名单</h3>
-            <p>控制可访问用户</p>
-          </div>
-          <div class="panel-body admin-form">
-            <label for="wl-email">邮箱</label>
-            <input id="wl-email" autocomplete="off">
-            <label for="wl-uid">UID</label>
-            <input id="wl-uid" autocomplete="off">
-            <label for="wl-status">状态</label>
-            <select id="wl-status">
-              <option value="active">启用</option>
-              <option value="pending">待确认</option>
-              <option value="blocked">禁用</option>
-            </select>
-            <label for="wl-limit">每日次数</label>
-            <input id="wl-limit" type="number" min="0" value="5">
-            <label for="wl-note">备注</label>
-            <textarea id="wl-note"></textarea>
-            <button type="button" id="save-whitelist">保存白名单</button>
-            <div class="status-box" id="whitelist-status">等待保存</div>
-          </div>
-        </section>
+            <div class="panel-body admin-form">
+              <label for="model-provider">供应商</label>
+              <select id="model-provider">${providerOptions}</select>
+              <label for="model-name">显示名称</label>
+              <input id="model-name" value="DeepSeek 默认">
+              <label for="model-base-url">Base URL</label>
+              <input id="model-base-url" readonly>
+              <p class="helper-text" id="model-base-url-hint">官方供应商地址已自动填充。</p>
+              <label for="model-quick">快速模型</label>
+              <select id="model-quick"></select>
+              <label for="model-deep">深度模型</label>
+              <select id="model-deep"></select>
+              <label for="model-api-key">API Key</label>
+              <input id="model-api-key" type="password" autocomplete="off">
+              <button type="button" id="save-model-config">保存模型</button>
+              <div class="status-box" id="model-status">等待保存</div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>白名单</h3>
+            </div>
+            <div class="panel-body admin-form">
+              <label for="wl-email">邮箱</label>
+              <input id="wl-email" autocomplete="off">
+              <label for="wl-uid">UID</label>
+              <input id="wl-uid" autocomplete="off">
+              <label for="wl-status">状态</label>
+              <select id="wl-status">
+                <option value="active">启用</option>
+                <option value="pending">待确认</option>
+                <option value="blocked">禁用</option>
+              </select>
+              <label for="wl-limit">每日次数</label>
+              <input id="wl-limit" type="number" min="0" value="5">
+              <label for="wl-note">备注</label>
+              <textarea id="wl-note"></textarea>
+              <button type="button" id="save-whitelist">保存白名单</button>
+              <div class="status-box" id="whitelist-status">等待保存</div>
+            </div>
+          </section>
+        </div>
         <section class="panel admin-table-panel">
           <div class="panel-header">
             <h3>当前配置</h3>
             <button class="secondary-button compact-button" type="button" id="reload-admin-data">刷新</button>
           </div>
-          <div class="table-wrap" id="admin-data">等待加载</div>
+          <div class="table-wrap" id="admin-data"><div class="empty-state">加载中…</div></div>
         </section>
       </div>
     `;
@@ -1068,6 +1202,16 @@
     renderAdminWorkspace();
   }
 
+  // Small helper: set a status box's text and success/error styling.
+  function setStatus(selector, text, ok) {
+    const node = qs(selector);
+    if (!node) return;
+    node.textContent = text;
+    node.classList.remove('ok', 'err');
+    if (ok === true) node.classList.add('ok');
+    else if (ok === false) node.classList.add('err');
+  }
+
   async function saveModelConfig() {
     try {
       await apiJson('/api/admin/model-configs', {
@@ -1082,10 +1226,10 @@
           api_key: qs('#model-api-key')?.value || ''
         })
       });
-      setText('#model-status', '模型配置已保存');
+      setStatus('#model-status', '模型配置已保存', true);
       await loadAdminData();
     } catch (err) {
-      setText('#model-status', `保存失败：${err.message}`);
+      setStatus('#model-status', `保存失败：${err.message}`, false);
     }
   }
 
@@ -1102,10 +1246,10 @@
           note: qs('#wl-note')?.value || ''
         })
       });
-      setText('#whitelist-status', '白名单已保存');
+      setStatus('#whitelist-status', '白名单已保存', true);
       await loadAdminData();
     } catch (err) {
-      setText('#whitelist-status', `保存失败：${err.message}`);
+      setStatus('#whitelist-status', `保存失败：${err.message}`, false);
     }
   }
 
@@ -1128,20 +1272,23 @@
   function renderAdminModels(items) {
     if (!items.length) return '<div class="empty-state">暂无模型配置</div>';
     return `<table class="data-table"><thead><tr><th>名称</th><th>供应商</th><th>快速模型</th><th>深度模型</th><th>Key</th><th>状态</th></tr></thead><tbody>${
-      items.map(item => `<tr><td>${escapeHtml(item.display_name)}</td><td>${escapeHtml(item.provider)}</td><td>${escapeHtml(item.quick_model)}</td><td>${escapeHtml(item.deep_model)}</td><td>${escapeHtml(item.api_key_masked)}</td><td>${item.is_default ? '默认' : '可用'}</td></tr>`).join('')
+      items.map(item => `<tr><td>${escapeHtml(item.display_name)}</td><td><span class="tag">${escapeHtml(item.provider)}</span></td><td class="mono">${escapeHtml(item.quick_model)}</td><td class="mono">${escapeHtml(item.deep_model)}</td><td class="mono">${escapeHtml(item.api_key_masked)}</td><td>${item.is_default ? '<span class="tag accent">默认</span>' : '<span class="tag">可用</span>'}</td></tr>`).join('')
     }</tbody></table>`;
   }
+
+  const WL_STATUS_LABEL = { active: '启用', pending: '待确认', blocked: '禁用' };
 
   function renderWhitelist(items) {
     if (!items.length) return '<div class="empty-state">暂无白名单用户</div>';
     return `<table class="data-table"><thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead><tbody>${
-      items.map(item => `<tr><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.uid || '')}</td><td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.daily_limit)}</td><td>${escapeHtml(item.note || '')}</td></tr>`).join('')
+      items.map(item => `<tr><td>${escapeHtml(item.email)}</td><td class="mono">${escapeHtml(item.uid || '')}</td><td><span class="dot-badge ${escapeHtml(item.status)}">${escapeHtml(WL_STATUS_LABEL[item.status] || item.status)}</span></td><td class="num">${escapeHtml(item.daily_limit)}</td><td>${escapeHtml(item.note || '')}</td></tr>`).join('')
     }</tbody></table>`;
   }
 
   function boot() {
     const params = new URLSearchParams(location.search);
     const requestedView = params.get('view') || state.view;
+    applyTheme(state.theme);
     if (state.identityEmail) {
       const input = qs('#identity-email');
       if (input) input.value = state.identityEmail;
@@ -1150,6 +1297,7 @@
     document.querySelectorAll('.nav-item').forEach(button => {
       button.addEventListener('click', () => showView(button.dataset.view));
     });
+    qs('#theme-toggle')?.addEventListener('click', toggleTheme);
     qs('#save-identity')?.addEventListener('click', () => {
       const email = qs('#identity-email')?.value.trim() || '';
       state.identityEmail = email;

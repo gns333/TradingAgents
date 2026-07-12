@@ -1,9 +1,12 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TradingAgents 工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="/assets/workbench.css">
 </head>
 <body>
@@ -13,7 +16,7 @@
         <div class="brand-mark" aria-hidden="true">TA</div>
         <div>
           <h1>TradingAgents</h1>
-          <p>A股分析工作台</p>
+          <p>A股分析终端</p>
         </div>
       </div>
 
@@ -37,13 +40,19 @@
 
     <div class="main-shell">
       <header class="topbar">
-        <div>
+        <div class="topbar-titles">
           <p class="eyebrow" id="view-eyebrow">多 Agent 分析</p>
           <h2 id="view-title">个股分析</h2>
         </div>
+        <div class="ticker-bar" id="ticker-bar" aria-live="polite"></div>
+        <div class="topbar-spacer"></div>
         <div class="topbar-actions">
           <span class="state-pill" id="global-run-state">空闲</span>
-          <button class="secondary-button" type="button" id="open-admin-login">管理员</button>
+          <button class="icon-button theme-toggle" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题">
+            <span class="ico-moon" aria-hidden="true">☾</span>
+            <span class="ico-sun" aria-hidden="true">☀</span>
+          </button>
+          <button class="secondary-button" type="button" id="open-admin-login"><span>管理员</span></button>
         </div>
       </header>
 

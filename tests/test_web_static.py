@@ -27,7 +27,8 @@ class WebStaticTests(unittest.TestCase):
     def test_reports_render_markdown(self):
         self.assertIn("function renderMarkdown(markdown)", self.js)
         self.assertIn("panel.className = 'report-article markdown'", self.js)
-        self.assertIn("panel.innerHTML = renderMarkdown(sectionsMap[section] || '')", self.js)
+        self.assertIn("const body = sectionsMap[section] || ''", self.js)
+        self.assertIn("+ renderMarkdown(body)", self.js)
         self.assertIn("output.push('<table>')", self.js)
 
     def test_process_output_collapses_and_agent_status_is_visible(self):

@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TradingAgents 工作台 · 静态设计 Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+  <!--
+  ============================================================================
+  TradingAgents 前端静态设计 Demo（自包含，无需后端）
+  ----------------------------------------------------------------------------
+  用途：把生产版三视图用示例数据静态还原，供设计迭代。改这一个文件即可。
+  样式与生产版 workbench.css 同源（此处内联）。示例数据为假数据。
+
+  三个视图的逻辑与布局摘要：
+
+  1) 个股分析 view-analysis —— 三栏终端布局（宽屏 ≥1200px）
+     · 左栏 form-panel：股票代码(自动补全) / 日期 / 分析模块勾选 / 开始分析 / 状态
+     · 中栏 report-current-panel：当前报告主舞台，report-tabs 按 7 个 agent 切换，
+       final_trade_decision 顶部显示 Buy/Sell/Hold 决策徽章
+     · 右栏 analysis-side：Agent 流水线(pipe-node 三态:pending/active/done + 连接线)
+       + 过程时间线(event-item 三类:active/done/error，长文本 details 折叠)
+     交互：点开始分析 → 轮询运行状态 → 流水线/时间线/报告实时更新。
+
+  2) 报告中心 view-reports —— 两栏
+     · 左栏 history-panel：搜索框 + 决策筛选 chip(全部/买入/卖出/持有) + 卡片式历史列表
+       (纯前端过滤已加载列表；卡片含决策徽章、日期、归档时间；hover 显删除)
+     · 右栏 report-detail-panel：report-summary-head(标题+模块+决策徽章) + Tab 报告正文
+
+  3) 后台管理 view-admin —— 两栏（需管理员登录）
+     · 顶部 admin-session-bar：登录态 + 退出
+     · 左栏 admin-forms：模型配置(供应商预设→Base URL 自动填充；datalist 输入模型；
+       获取模型列表按钮) + 白名单表单
+     · 右栏 admin-table-panel：模型表(默认徽章/Key 掩码/供应商标签) +
+       白名单表(状态色点徽章/每日次数等宽数字)
+
+  设计基调：深色 OLED 金融终端；品牌色=琥珀橙(避开红绿涨跌语义)；
+  红涨绿跌(A股惯例)；数字统一 JetBrains Mono 等宽；[data-theme=light] 可切浅色。
+  ============================================================================
+  -->
+  <style>
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2330;
+  --line: #2a3441;
+  --line-soft: #20262f;
+  --text: #e6edf3;
+  --muted: #8b98a9;
+  --faint: #5c6675;
+
+  --accent: #f5a623;
+  --accent-strong: #ffb733;
+  --accent-soft: rgba(245, 166, 35, .14);
+  --on-accent: #1a1204;
+
+  --up: #f6465d;
+  --up-soft: rgba(246, 70, 93, .14);
+  --down: #2ebd85;
+  --down-soft: rgba(46, 189, 133, .14);
+  --neutral: #8b98a9;
+  --neutral-soft: rgba(139, 152, 169, .14);
+
+  --warning: #f0a020;
+  --warning-soft: rgba(240, 160, 32, .14);
+  --danger: #f6465d;
+  --danger-soft: rgba(246, 70, 93, .14);
+
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, .5);
+
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --surface-2: #f0f3f7;
+  --line: #dde3eb;
+  --line-soft: #edf1f5;
+  --text: #1a2029;
+  --muted: #5c6b7e;
+  --faint: #8b97a7;
+
+  --accent: #b87400;
+  --accent-strong: #9a6000;
+  --accent-soft: rgba(184, 116, 0, .10);
+  --on-accent: #ffffff;
+
+  --up: #e0384e;
+  --up-soft: rgba(224, 56, 78, .10);
+  --down: #1a9e6c;
+  --down-soft: rgba(26, 158, 108, .10);
+  --neutral: #5c6b7e;
+  --neutral-soft: rgba(92, 107, 126, .12);
+
+  --warning: #9a5b00;
+  --warning-soft: rgba(154, 91, 0, .12);
+  --danger: #c62a1c;
+  --danger-soft: rgba(198, 42, 28, .10);
+
+  --shadow: 0 8px 24px rgba(26, 32, 41, .08);
+  --shadow-pop: 0 16px 48px rgba(26, 32, 41, .16);
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.mono, .num, .price, .change, .event-count, .data-table td.num, .metric-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button {
+  min-height: 40px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 15px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 650;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, opacity .18s ease, transform .12s ease;
+}
+button:hover { background: var(--accent-strong); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.secondary-button, .icon-button {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 550;
+}
+.secondary-button:hover, .icon-button:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.compact-button { width: auto; min-height: 32px; padding: 0 12px; font-size: 12px; }
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  min-height: 38px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100dvh; }
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px 14px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand { display: flex; align-items: center; gap: 11px; padding: 0 4px; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: var(--on-accent);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: .5px;
+}
+.brand h1, .brand p, .topbar h2, .topbar p, .panel-header h3, .panel-header p { margin: 0; }
+.brand h1 { font-size: 16px; font-weight: 700; }
+.brand p, .eyebrow, .panel-header p, .helper-text, .muted { color: var(--muted); font-size: 12px; }
+
+.nav-list { display: grid; gap: 4px; }
+.nav-item {
+  position: relative;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 550;
+  text-align: left;
+  padding-left: 14px;
+  cursor: pointer;
+}
+.nav-item:hover { background: var(--surface-2); color: var(--text); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 9px; bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.identity-card {
+  margin-top: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.identity-card h2 { margin: 0 0 8px; font-size: 12px; font-weight: 650; }
+.identity-summary {
+  min-height: 30px;
+  padding: 6px 9px;
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+label, legend {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+fieldset { margin: 14px 0; padding: 0; border: 0; }
+
+input:not([type="checkbox"]), select, textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 11px;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+input:not([type="checkbox"]):focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+input::placeholder { color: var(--faint); }
+textarea { min-height: 68px; resize: vertical; }
+
+.inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+
+.main-shell { min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 8;
+}
+.topbar-titles { min-width: 0; }
+.topbar h2 { font-size: 19px; font-weight: 700; letter-spacing: -.2px; }
+.topbar .eyebrow { text-transform: uppercase; letter-spacing: .8px; font-size: 11px; }
+.topbar-spacer { flex: 1; }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+
+.ticker-bar {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.ticker-bar.show { display: inline-flex; }
+.ticker-bar .tk-code { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.ticker-bar .tk-name { color: var(--muted); font-size: 13px; }
+.ticker-bar .tk-price { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 15px; }
+.ticker-bar .tk-change {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.tk-change.up { color: var(--up); background: var(--up-soft); }
+.tk-change.down { color: var(--down); background: var(--down-soft); }
+.tk-change.flat { color: var(--neutral); background: var(--neutral-soft); }
+
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.state-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.state-pill.running { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.state-pill.running::before { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.state-pill.done { border-color: var(--down); background: var(--down-soft); color: var(--down); }
+.state-pill.done::before { background: var(--down); }
+.state-pill.failed { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+.state-pill.failed::before { background: var(--danger); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.7); } }
+
+.workspace { padding: 20px 22px; flex: 1; }
+.view { display: none; }
+.view.active { display: block; animation: fade-in .22s ease; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.workspace-grid { display: grid; gap: 16px; }
+.analysis-grid { grid-template-columns: 300px minmax(0, 1fr) 300px; align-items: start; }
+.admin-grid { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); align-items: start; }
+.form-panel { position: sticky; top: 82px; }
+.analysis-side { display: grid; gap: 16px; }
+.run-panel, .timeline-panel, .report-current-panel, .report-detail-panel, .admin-table-panel { min-width: 0; }
+
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.panel-header {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.panel-header h3 { font-size: 14px; font-weight: 650; }
+.panel-body { padding: 15px; }
+
+.module-fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.module-fieldset legend { grid-column: 1 / -1; }
+.check-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease;
+  margin: 0;
+}
+.check-option:hover { border-color: var(--accent); }
+.check-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.check-option input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+
+.status-box, .form-status, .notice {
+  min-height: 34px;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.status-box.ok, .notice.success { background: var(--down-soft); border-color: var(--down); color: var(--down); }
+.status-box.err, .form-status { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.form-status { min-height: 0; margin-top: 6px; }
+.notice.warning { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+
+.pipeline { display: grid; gap: 0; padding: 14px 15px; }
+.pipe-node { position: relative; display: flex; align-items: center; gap: 11px; padding: 9px 0 9px 4px; }
+.pipe-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 9px; top: 30px; bottom: -4px;
+  width: 2px;
+  background: var(--line);
+}
+.pipe-node.done:not(:last-child)::after { background: var(--down); }
+.pipe-dot {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: var(--surface);
+}
+.pipe-node.active .pipe-dot {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  animation: pulse-ring 1.4s ease-in-out infinite;
+}
+.pipe-node.done .pipe-dot { border-color: var(--down); background: var(--down); }
+.pipe-node.done .pipe-dot::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+@keyframes pulse-ring { 0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); } 50% { box-shadow: 0 0 0 7px var(--accent-soft); } }
+.pipe-info { min-width: 0; flex: 1; }
+.pipe-info strong { display: block; font-size: 13px; font-weight: 600; }
+.pipe-info span { font-size: 11px; color: var(--muted); }
+.pipe-status { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.pipe-node.pending .pipe-status { color: var(--faint); background: var(--surface-2); }
+.pipe-node.active .pipe-status { color: var(--accent); background: var(--accent-soft); }
+.pipe-node.done .pipe-status { color: var(--down); background: var(--down-soft); }
+
+.decision-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: .3px;
+}
+.decision-badge.buy { color: var(--up); background: var(--up-soft); }
+.decision-badge.sell { color: var(--down); background: var(--down-soft); }
+.decision-badge.hold { color: var(--neutral); background: var(--neutral-soft); }
+.decision-badge::before { font-size: 11px; }
+.decision-badge.buy::before { content: "▲"; }
+.decision-badge.sell::before { content: "▼"; }
+.decision-badge.hold::before { content: "＝"; }
+
+.timeline { max-height: 420px; overflow: auto; padding: 8px 15px 14px; }
+.event-item { position: relative; padding: 10px 0 10px 14px; border-bottom: 1px solid var(--line-soft); }
+.event-item:last-child { border-bottom: 0; }
+.event-item::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 13px;
+  width: 3px; height: 14px;
+  border-radius: 3px;
+  background: var(--faint);
+}
+.event-item.active::before { background: var(--accent); }
+.event-item.done::before { background: var(--down); }
+.event-item.error::before { background: var(--danger); }
+.event-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.event-title strong { font-size: 13px; font-weight: 600; }
+.event-title span { color: var(--faint); font-size: 11px; }
+.event-item p { margin: 5px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.event-item details { margin-top: 8px; }
+.event-item summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+.event-item pre, .markdown pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius);
+  padding: 11px;
+  margin: 8px 0 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  font: 12px/1.6 var(--mono);
+}
+.empty-state { padding: 26px 18px; color: var(--faint); text-align: center; font-size: 13px; }
+
+.table-wrap { width: 100%; overflow: auto; padding: 0 0 12px; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th, .data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: left;
+  vertical-align: middle;
+}
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  white-space: nowrap;
+}
+.data-table tbody tr:hover { background: var(--surface-2); }
+.data-table td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 550;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.tag.accent { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+
+.dot-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.dot-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.dot-badge.active { color: var(--down); }
+.dot-badge.active::before { background: var(--down); }
+.dot-badge.pending { color: var(--warning); }
+.dot-badge.pending::before { background: var(--warning); }
+.dot-badge.blocked { color: var(--danger); }
+.dot-badge.blocked::before { background: var(--danger); }
+
+.combo { position: relative; }
+.combo-menu {
+  position: absolute;
+  z-index: 14;
+  left: 0; right: 0;
+  top: calc(100% + 4px);
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+.combo-menu[hidden] { display: none; }
+.combo-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.combo-item:last-child { border-bottom: 0; }
+.combo-item:hover, .combo-item:focus-visible { background: var(--accent-soft); }
+.combo-item strong { font-size: 13px; font-weight: 600; }
+.combo-item span { color: var(--muted); font-size: 12px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.report-viewer { padding: 0 0 12px; }
+.report-current-panel .report-viewer, .report-detail-panel .report-viewer { max-height: calc(100dvh - 220px); overflow: auto; }
+.report-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 12px 15px 0;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.report-tab {
+  width: auto;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.report-tab:hover { color: var(--text); background: var(--surface-2); }
+.report-tab.active { color: var(--accent); background: transparent; border-bottom-color: var(--accent); }
+.report-article { max-width: 940px; padding: 16px 15px; margin: 0 auto; }
+.report-summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.report-summary-head .rh-title { font-weight: 700; font-size: 15px; }
+.report-summary-head .rh-meta { color: var(--muted); font-size: 12px; }
+
+.markdown { line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { margin: 20px 0 10px; line-height: 1.3; font-weight: 650; }
+.markdown h1 { font-size: 21px; }
+.markdown h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.markdown h3 { font-size: 16px; }
+.markdown h4 { font-size: 14px; color: var(--muted); }
+.markdown p { margin: 9px 0; }
+.markdown ul, .markdown ol { margin: 9px 0 9px 20px; padding: 0; }
+.markdown li { margin: 3px 0; }
+.markdown strong { color: var(--text); font-weight: 650; }
+.markdown a { color: var(--accent); }
+.markdown table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13px; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 8px 11px; text-align: left; vertical-align: top; }
+.markdown th { background: var(--surface-2); font-weight: 600; }
+.markdown td { font-variant-numeric: tabular-nums; }
+.markdown code {
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  font: 12px/1.5 var(--mono);
+}
+.markdown pre code { padding: 0; background: transparent; border: 0; }
+.markdown blockquote {
+  margin: 12px 0;
+  padding: 8px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.reports-grid { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: start; }
+.history-panel { position: sticky; top: 82px; }
+.history-filter { display: grid; gap: 8px; padding: 12px 15px; border-bottom: 1px solid var(--line); }
+.history-filter .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.filter-chip {
+  width: auto;
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+.filter-chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.history-list { display: grid; gap: 8px; padding: 12px; max-height: calc(100dvh - 260px); overflow: auto; }
+.history-item {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow: hidden;
+  transition: border-color .16s ease, background .16s ease;
+}
+.history-item:hover { border-color: var(--accent); }
+.history-item.active { border-color: var(--accent); background: var(--accent-soft); }
+.history-item.active::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+.history-open {
+  flex: 1;
+  display: grid;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 11px 13px;
+  min-height: 68px;
+  cursor: pointer;
+}
+.history-open:hover { background: transparent; }
+.history-open .ho-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.history-open strong { font-size: 13px; font-weight: 650; }
+.history-open .ho-date { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.history-open .ho-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.history-open small { color: var(--faint); font-size: 11px; font-family: var(--mono); }
+.history-delete {
+  width: auto;
+  min-height: 100%;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--danger);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--line);
+  opacity: 0;
+  transition: opacity .16s ease;
+  cursor: pointer;
+}
+.history-item:hover .history-delete, .history-item.active .history-delete { opacity: 1; }
+.history-delete:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+
+.admin-session-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.admin-session-bar .sess-info { display: flex; align-items: center; gap: 12px; }
+.admin-session-bar .helper-text { margin: 0; }
+.admin-forms { display: grid; gap: 16px; }
+.admin-form { display: grid; gap: 0; }
+.admin-table-panel { min-width: 0; }
+.admin-table-panel h4 { margin: 16px 15px 8px; font-size: 13px; color: var(--muted); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(3px);
+  z-index: 40;
+}
+.modal-backdrop[hidden] { display: none; }
+.modal-panel {
+  width: min(440px, 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  animation: modal-in .22s ease;
+}
+@keyframes modal-in { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.modal-header h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.modal-body { display: grid; gap: 10px; padding: 16px; }
+
+.theme-toggle { position: relative; }
+.theme-toggle .ico-sun { display: none; }
+[data-theme="light"] .theme-toggle .ico-sun { display: inline; }
+[data-theme="light"] .theme-toggle .ico-moon { display: none; }
+
+@media (max-width: 1200px) {
+  .analysis-grid { grid-template-columns: 280px minmax(0, 1fr); }
+  .analysis-side { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 1024px) {
+  .admin-grid, .reports-grid { grid-template-columns: 1fr; }
+  .form-panel, .history-panel { position: static; }
+}
+@media (max-width: 900px) {
+  .analysis-grid { grid-template-columns: 1fr; }
+  .analysis-side { grid-template-columns: 1fr; }
+  .form-panel { position: static; }
+}
+@media (max-width: 860px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .brand { flex: 1; }
+  .nav-list { grid-auto-flow: column; }
+  .identity-card { display: none; }
+  .topbar { flex-wrap: wrap; }
+  .ticker-bar.show { order: 3; width: 100%; }
+}
+@media (max-width: 560px) {
+  .workspace { padding: 14px; }
+  .module-fieldset, .inline-form { grid-template-columns: 1fr; }
+  .nav-list { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
+  .topbar-actions .secondary-button span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">TA</div>
+        <div>
+          <h1>TradingAgents</h1>
+          <p>A股分析终端</p>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="primary-nav">
+        <button class="nav-item active" type="button" data-view="analysis">个股分析</button>
+        <button class="nav-item" type="button" data-view="reports">报告中心</button>
+        <button class="nav-item" type="button" data-view="admin">后台管理</button>
+      </nav>
+
+      <section class="identity-card">
+        <h2>访问身份</h2>
+        <div class="identity-summary">管理员模式：本地开发已授权</div>
+        <label for="identity-email">邮箱</label>
+        <div class="inline-form">
+          <input id="identity-email" type="email" value="analyst@example.com">
+          <button class="secondary-button" type="button">保存</button>
+        </div>
+        <p class="helper-text">本地开发管理员登录后无需填写；普通用户和 CloudBase 部署可由登录态自动带入。</p>
+      </section>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="topbar-titles">
+          <p class="eyebrow" id="view-eyebrow">多 Agent 分析</p>
+          <h2 id="view-title">个股分析</h2>
+        </div>
+        <div class="ticker-bar show" id="ticker-bar">
+          <span class="tk-code">002558.SZ</span>
+          <span class="tk-name">巨人网络</span>
+          <span class="tk-price">29.56</span>
+          <span class="tk-change up">▲ +2.31%</span>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="topbar-actions">
+          <span class="state-pill done" id="global-run-state">分析完成</span>
+          <button class="icon-button theme-toggle" type="button" id="theme-toggle" aria-label="切换深浅色主题" title="切换主题">
+            <span class="ico-moon" aria-hidden="true">☾</span>
+            <span class="ico-sun" aria-hidden="true">☀</span>
+          </button>
+          <button class="secondary-button" type="button"><span>后台</span></button>
+        </div>
+      </header>
+
+      <main class="workspace">
+
+        <!-- ============================ 个股分析 ============================ -->
+        <section class="view active" id="view-analysis">
+          <div class="workspace-grid analysis-grid">
+            <section class="panel form-panel">
+              <div class="panel-header"><h3>分析参数</h3></div>
+              <div class="panel-body">
+                <label for="ticker">股票代码</label>
+                <div class="combo">
+                  <input id="ticker" value="002558.SZ" autocomplete="off" placeholder="输入代码或名称，如 600519 / 茅台">
+                </div>
+                <label for="trade-date">分析日期</label>
+                <input id="trade-date" type="date" value="2026-07-11">
+                <fieldset class="module-fieldset">
+                  <legend>分析模块</legend>
+                  <label class="check-option"><input type="checkbox" checked>市场</label>
+                  <label class="check-option"><input type="checkbox" checked>新闻</label>
+                  <label class="check-option"><input type="checkbox" checked>基本面</label>
+                  <label class="check-option"><input type="checkbox" checked>社交情绪</label>
+                </fieldset>
+                <button type="button">开始分析</button>
+                <div class="status-box ok">分析完成，已归档到报告中心</div>
+              </div>
+            </section>
+
+            <section class="panel report-current-panel">
+              <div class="panel-header">
+                <h3>当前报告</h3>
+                <button class="secondary-button compact-button" type="button" data-goto="reports">历史报告</button>
+              </div>
+              <div class="report-viewer">
+                <div class="report-tabs" role="tablist" data-report="live">
+                  <button class="report-tab active" data-section="market">市场分析师</button>
+                  <button class="report-tab" data-section="news">新闻分析师</button>
+                  <button class="report-tab" data-section="fundamentals">基本面分析师</button>
+                  <button class="report-tab" data-section="sentiment">情绪分析师</button>
+                  <button class="report-tab" data-section="research">研究经理</button>
+                  <button class="report-tab" data-section="trader">交易员</button>
+                  <button class="report-tab" data-section="decision">组合经理</button>
+                </div>
+
+                <article class="report-article markdown" data-panel="market">
+                  <h2>📊 002558.SZ（巨人网络）技术分析报告</h2>
+                  <p><strong>分析基准日期：</strong>2026年7月11日（基于最新交易日 2026-07-10 收盘数据）</p>
+                  <h3>一、核心数据快照（已验证来源）</h3>
+                  <table>
+                    <thead><tr><th>指标</th><th>数值</th></tr></thead>
+                    <tbody>
+                      <tr><td>最新收盘价</td><td><strong>29.56</strong></td></tr>
+                      <tr><td>10日 EMA</td><td>27.98</td></tr>
+                      <tr><td>50日 SMA</td><td>27.60</td></tr>
+                      <tr><td>200日 SMA</td><td><strong>36.48</strong></td></tr>
+                      <tr><td>RSI(14)</td><td>62.98</td></tr>
+                      <tr><td>MACD / 信号线 / 柱状图</td><td>0.54 / 0.13 / <strong>0.41</strong></td></tr>
+                      <tr><td>布林带中轨(20SMA)/上轨/下轨</td><td>26.57 / 30.32 / 22.83</td></tr>
+                      <tr><td>ATR(14)</td><td>1.75</td></tr>
+                    </tbody>
+                  </table>
+                  <blockquote>⚠️ 数据一致性说明：get_indicators 返回的 RSI(14) 在 2026-07-10 为 69.06，而 get_verified_market_snapshot 报告为 62.98。本报告以验证快照为基准来源（62.98）。</blockquote>
+                  <h3>二、趋势研判</h3>
+                  <p>短期均线上穿、MACD 金叉后柱状图走强，动能偏多；但 200 日均线（36.48）远在上方，构成中期压制，天量滞涨提示获利盘派发风险。</p>
+                </article>
+
+                <article class="report-article markdown" data-panel="decision" hidden>
+                  <div class="report-summary-head">
+                    <span class="decision-badge buy">买入</span>
+                    <span class="rh-meta">组合经理 · 最终交易决策</span>
+                  </div>
+                  <h2>最终交易决策</h2>
+                  <p><strong>Action：</strong>分批买入 / 逢低配置</p>
+                  <p>综合市场（动能偏多）、新闻（新游上线催化）、基本面（净利预增 157%–183%）与情绪面，短期风险收益比转为正向。建议在 27–28 元区间分批建仓，止损 24 元，目标 33–36 元。</p>
+                  <ul>
+                    <li><strong>入场区间：</strong>27.0 – 28.5 元</li>
+                    <li><strong>止损：</strong>24.0 元（跌破 50 日均线）</li>
+                    <li><strong>目标：</strong>33 – 36 元（200 日均线压制位）</li>
+                  </ul>
+                </article>
+
+                <article class="report-article markdown" data-panel="placeholder" hidden>
+                  <div class="empty-state">切换 Tab 查看对应分析师报告（此 demo 仅填充「市场分析师」与「组合经理」两页示例内容）</div>
+                </article>
+              </div>
+            </section>
+
+            <div class="analysis-side">
+              <section class="panel run-panel">
+                <div class="panel-header">
+                  <h3>Agent 团队</h3>
+                  <p id="current-agent">已结束</p>
+                </div>
+                <div class="pipeline">
+                  <div class="pipe-node done"><span class="pipe-dot"></span><div class="pipe-info"><strong>市场分析师</strong><span>价格/技术面</span></div><span class="pipe-status">已完成</span></div>
+                  <div class="pipe-node done"><span class="pipe-dot"></span><div class="pipe-info"><strong>新闻分析师</strong><span>资讯催化</span></div><span class="pipe-status">已完成</span></div>
+                  <div class="pipe-node done"><span class="pipe-dot"></span><div class="pipe-info"><strong>基本面分析师</strong><span>财务/估值</span></div><span class="pipe-status">已完成</span></div>
+                  <div class="pipe-node active"><span class="pipe-dot"></span><div class="pipe-info"><strong>情绪分析师</strong><span>社交/舆情</span></div><span class="pipe-status">进行中</span></div>
+                  <div class="pipe-node pending"><span class="pipe-dot"></span><div class="pipe-info"><strong>研究经理</strong><span>多空观点整合</span></div><span class="pipe-status">待处理</span></div>
+                  <div class="pipe-node pending"><span class="pipe-dot"></span><div class="pipe-info"><strong>交易员</strong><span>交易计划</span></div><span class="pipe-status">待处理</span></div>
+                  <div class="pipe-node pending"><span class="pipe-dot"></span><div class="pipe-info"><strong>组合经理</strong><span>最终决策</span></div><span class="pipe-status">待处理</span></div>
+                </div>
+              </section>
+
+              <section class="panel timeline-panel">
+                <div class="panel-header">
+                  <h3>过程</h3>
+                  <p><span class="event-count">78</span> 个事件</p>
+                </div>
+                <div class="timeline">
+                  <article class="event-item active">
+                    <div class="event-title"><strong>Agent 输出</strong><span>AIMessage</span></div>
+                    <p>正在整合社交舆情数据，评估散户情绪与龙虎榜资金流向……</p>
+                  </article>
+                  <article class="event-item done">
+                    <div class="event-title"><strong>报告更新</strong><span>协作轨迹</span></div>
+                    <p>基本面分析师 交付了 fundamentals_report</p>
+                  </article>
+                  <article class="event-item done">
+                    <div class="event-title"><strong>工具调用</strong><span>工具</span></div>
+                    <p>get_financial_statements {"ticker": "002558.SZ", "period": "2026Q2"}</p>
+                  </article>
+                  <article class="event-item active">
+                    <div class="event-title"><strong>Agent 输出</strong><span>AIMessage</span></div>
+                    <p>2026 上半年净利润预增 157%–183%，主要由《超自然行动组》流水贡献……</p>
+                    <details>
+                      <summary>展开完整输出（385 字）</summary>
+                      <pre>**Action**: 分批买入
+**Reasoning**: 短期业绩爆发已部分定价，但情绪面与资金面仍有惯性。产品生命周期需跟踪《超自然行动组》流水峰值……（示例截断）</pre>
+                    </details>
+                  </article>
+                  <article class="event-item done">
+                    <div class="event-title"><strong>报告更新</strong><span>协作轨迹</span></div>
+                    <p>新闻分析师 交付了 news_report</p>
+                  </article>
+                  <article class="event-item error">
+                    <div class="event-title"><strong>工具重试</strong><span>系统</span></div>
+                    <p>get_news 请求超时，已自动重试（1/3）</p>
+                  </article>
+                  <article class="event-item done">
+                    <div class="event-title"><strong>任务启动</strong><span>团队</span></div>
+                    <p>002558.SZ 市场、新闻、基本面、社交情绪</p>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================ 报告中心 ============================ -->
+        <section class="view" id="view-reports">
+          <div class="workspace-grid reports-grid">
+            <section class="panel history-panel">
+              <div class="panel-header">
+                <h3>历史报告</h3>
+                <button class="secondary-button compact-button" type="button">刷新</button>
+              </div>
+              <div class="history-filter">
+                <input id="history-search" placeholder="搜索代码或名称" autocomplete="off">
+                <div class="filter-chips" role="group" aria-label="按决策筛选">
+                  <button type="button" class="filter-chip active" data-filter="all">全部</button>
+                  <button type="button" class="filter-chip" data-filter="buy">买入</button>
+                  <button type="button" class="filter-chip" data-filter="sell">卖出</button>
+                  <button type="button" class="filter-chip" data-filter="hold">持有</button>
+                </div>
+              </div>
+              <div class="history-list">
+                <div class="history-item active">
+                  <button class="history-open">
+                    <div class="ho-top"><strong>002558.SZ · 巨人网络</strong><span class="ho-date">2026-07-11</span></div>
+                    <div class="ho-tags"><span class="decision-badge buy">买入</span></div>
+                    <small>2026-07-11 09:17</small>
+                  </button>
+                  <button class="history-delete" aria-label="删除报告">删除</button>
+                </div>
+                <div class="history-item">
+                  <button class="history-open">
+                    <div class="ho-top"><strong>300750.SZ · 宁德时代</strong><span class="ho-date">2026-07-09</span></div>
+                    <div class="ho-tags"><span class="decision-badge sell">卖出</span></div>
+                    <small>2026-07-09 15:42</small>
+                  </button>
+                  <button class="history-delete" aria-label="删除报告">删除</button>
+                </div>
+                <div class="history-item">
+                  <button class="history-open">
+                    <div class="ho-top"><strong>600519.SH · 贵州茅台</strong><span class="ho-date">2026-07-08</span></div>
+                    <div class="ho-tags"><span class="decision-badge hold">持有</span></div>
+                    <small>2026-07-08 11:03</small>
+                  </button>
+                  <button class="history-delete" aria-label="删除报告">删除</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel report-detail-panel">
+              <div class="report-summary-head">
+                <span class="rh-title">002558.SZ · 巨人网络</span>
+                <span class="rh-meta">分析模块：市场、新闻、基本面、社交情绪</span>
+                <span class="decision-badge buy">买入</span>
+              </div>
+              <div class="report-viewer">
+                <div class="report-tabs" role="tablist" data-report="history">
+                  <button class="report-tab active" data-section="market">市场分析师</button>
+                  <button class="report-tab" data-section="news">新闻分析师</button>
+                  <button class="report-tab" data-section="fundamentals">基本面分析师</button>
+                  <button class="report-tab" data-section="decision">组合经理</button>
+                </div>
+                <article class="report-article markdown">
+                  <h2>📊 002558.SZ（巨人网络）技术分析报告</h2>
+                  <p>历史归档报告与「当前报告」使用同一套 Tab + Markdown 渲染组件。此处复用市场分析师页作为示例内容。</p>
+                  <h3>核心结论</h3>
+                  <ul>
+                    <li>短期动能偏多，MACD 金叉后柱状图走强</li>
+                    <li>200 日均线（36.48）构成中期压制</li>
+                    <li>综合决策：<strong>分批买入</strong>，入场区间 27–28.5 元</li>
+                  </ul>
+                  <table>
+                    <thead><tr><th>指标</th><th>数值</th></tr></thead>
+                    <tbody>
+                      <tr><td>最新收盘价</td><td>29.56</td></tr>
+                      <tr><td>RSI(14)</td><td>62.98</td></tr>
+                      <tr><td>ATR(14)</td><td>1.75</td></tr>
+                    </tbody>
+                  </table>
+                </article>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- ============================ 后台管理 ============================ -->
+        <section class="view" id="view-admin">
+          <div class="workspace-grid admin-grid">
+            <div class="admin-session-bar">
+              <div class="sess-info">
+                <span class="state-pill done">已登录</span>
+                <p class="helper-text">退出后会清除本地管理员 token，不影响已保存的模型和白名单配置。</p>
+              </div>
+              <button class="secondary-button" type="button">退出登录</button>
+            </div>
+
+            <div class="admin-forms">
+              <section class="panel">
+                <div class="panel-header"><h3>模型配置</h3></div>
+                <div class="panel-body admin-form">
+                  <label for="model-provider">供应商</label>
+                  <select id="model-provider">
+                    <option>DeepSeek</option>
+                    <option>OpenAI</option>
+                    <option>Anthropic</option>
+                    <option>Google Gemini</option>
+                    <option>通义千问（国内）</option>
+                    <option>智谱 GLM（国内）</option>
+                    <option>Kimi（月之暗面）</option>
+                    <option>OpenAI 兼容 / 自建</option>
+                  </select>
+                  <label for="model-name">显示名称</label>
+                  <input id="model-name" value="DeepSeek 默认">
+                  <label for="model-base-url">Base URL</label>
+                  <input id="model-base-url" value="https://api.deepseek.com" readonly>
+                  <p class="helper-text">官方供应商地址已自动填充，不可修改。</p>
+                  <label for="model-quick">快速模型</label>
+                  <input id="model-quick" value="deepseek-chat" placeholder="获取列表或手动输入模型 ID">
+                  <label for="model-deep">深度模型</label>
+                  <input id="model-deep" value="deepseek-reasoner" placeholder="可与快速模型相同">
+                  <label for="model-api-key">API Key</label>
+                  <input id="model-api-key" type="password" value="secret">
+                  <button class="secondary-button" type="button">获取模型列表</button>
+                  <button type="button">保存模型</button>
+                  <div class="status-box ok">模型配置已保存</div>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header"><h3>白名单</h3></div>
+                <div class="panel-body admin-form">
+                  <label for="wl-email">邮箱</label>
+                  <input id="wl-email" value="trader@example.com">
+                  <label for="wl-uid">UID</label>
+                  <input id="wl-uid" value="u_10231">
+                  <label for="wl-status">状态</label>
+                  <select id="wl-status"><option>启用</option><option>待确认</option><option>禁用</option></select>
+                  <label for="wl-limit">每日次数</label>
+                  <input id="wl-limit" type="number" value="5">
+                  <label for="wl-note">备注</label>
+                  <textarea id="wl-note">核心分析师账号</textarea>
+                  <button type="button">保存白名单</button>
+                  <div class="status-box">等待保存</div>
+                </div>
+              </section>
+            </div>
+
+            <section class="panel admin-table-panel">
+              <div class="panel-header">
+                <h3>当前配置</h3>
+                <button class="secondary-button compact-button" type="button">刷新</button>
+              </div>
+              <div class="table-wrap">
+                <h4>模型</h4>
+                <table class="data-table">
+                  <thead><tr><th>名称</th><th>供应商</th><th>快速模型</th><th>深度模型</th><th>Key</th><th>状态</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td>DeepSeek 默认</td><td><span class="tag">deepseek</span></td>
+                      <td class="mono">deepseek-chat</td><td class="mono">deepseek-reasoner</td>
+                      <td class="mono">sk-••••••3f2a</td><td><span class="tag accent">默认</span></td>
+                    </tr>
+                    <tr>
+                      <td>GPT 备用</td><td><span class="tag">openai</span></td>
+                      <td class="mono">gpt-4o-mini</td><td class="mono">gpt-4o</td>
+                      <td class="mono">sk-••••••9b71</td><td><span class="tag">可用</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <h4>白名单</h4>
+                <table class="data-table">
+                  <thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead>
+                  <tbody>
+                    <tr><td>trader@example.com</td><td class="mono">u_10231</td><td><span class="dot-badge active">启用</span></td><td class="num">5</td><td>核心分析师账号</td></tr>
+                    <tr><td>guest@example.com</td><td class="mono">u_10884</td><td><span class="dot-badge pending">待确认</span></td><td class="num">2</td><td>试用申请中</td></tr>
+                    <tr><td>spam@example.com</td><td class="mono">u_09117</td><td><span class="dot-badge blocked">禁用</span></td><td class="num">0</td><td>滥用已封禁</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // 极简交互：视图切换 / 主题切换 / 报告 Tab（仅供 demo 浏览，无业务逻辑）
+    const VIEW_META = {
+      analysis: { title: '个股分析', eyebrow: '多 Agent 分析' },
+      reports: { title: '报告中心', eyebrow: 'Markdown 报告' },
+      admin: { title: '后台管理', eyebrow: '模型与白名单' }
+    };
+    function showView(view) {
+      document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+      const meta = VIEW_META[view] || VIEW_META.analysis;
+      document.getElementById('view-title').textContent = meta.title;
+      document.getElementById('view-eyebrow').textContent = meta.eyebrow;
+    }
+    document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+    document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => showView(b.dataset.goto)));
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+      const html = document.documentElement;
+      html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+
+    // 当前报告 Tab：只有 market / decision 两页有示例内容，其余显示占位
+    document.querySelectorAll('.report-tabs[data-report="live"] .report-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabs = tab.parentElement;
+        tabs.querySelectorAll('.report-tab').forEach(t => t.classList.toggle('active', t === tab));
+        const section = tab.dataset.section;
+        const viewer = tabs.parentElement;
+        const panels = { market: 'market', decision: 'decision' };
+        const target = panels[section] || 'placeholder';
+        viewer.querySelectorAll('.report-article').forEach(a => { a.hidden = a.dataset.panel !== target; });
+      });
+    });
+    // 报告中心筛选 chip（仅视觉高亮，示例列表不做真实过滤）
+    document.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        chip.parentElement.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c === chip));
+      });
+    });
+  </script>
+</body>
+</html>

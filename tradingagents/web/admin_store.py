@@ -17,6 +17,7 @@ from pathlib import Path
 import secrets
 import sqlite3
 from typing import Any
+import uuid
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -51,6 +52,14 @@ class RuntimeModelConfig:
     deep_model: str
     api_key: str
     base_url: str | None = None
+
+
+class ActiveRunExists(RuntimeError):
+    """Raised when an owner already has a queued or running analysis."""
+
+    def __init__(self, run: dict[str, Any]):
+        super().__init__("owner already has an active analysis run")
+        self.run = run
 
 
 class AdminStore:
@@ -119,10 +128,93 @@ class AdminStore:
                     owner TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS analysis_runs (
+                    id TEXT PRIMARY KEY,
+                    owner_key TEXT NOT NULL,
+                    owner_uid TEXT NOT NULL DEFAULT '',
+                    owner_email TEXT NOT NULL DEFAULT '',
+                    ticker TEXT NOT NULL,
+                    stock_name TEXT NOT NULL DEFAULT '',
+                    trade_date TEXT NOT NULL,
+                    asset_type TEXT NOT NULL DEFAULT 'stock',
+                    analysts TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    current_agent TEXT NOT NULL DEFAULT '',
+                    last_event_seq INTEGER NOT NULL DEFAULT 0,
+                    error_type TEXT NOT NULL DEFAULT '',
+                    error_message TEXT NOT NULL DEFAULT '',
+                    report_id INTEGER,
+                    created_at TEXT NOT NULL,
+                    started_at TEXT,
+                    finished_at TEXT,
+                    heartbeat_at TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS analysis_run_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    event TEXT NOT NULL,
+                    data TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    UNIQUE(run_id, seq)
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_analysis_runs_active_owner
+                ON analysis_runs(owner_key)
+                WHERE status IN ('queued', 'running');
+
+                CREATE INDEX IF NOT EXISTS idx_analysis_run_events_run_seq
+                ON analysis_run_events(run_id, seq);
+                """
+            )
+            self._ensure_columns(
+                conn,
+                "analysis_reports",
+                {
+                    "run_id": "TEXT",
+                    "stock_name": "TEXT NOT NULL DEFAULT ''",
+                    "owner_key": "TEXT NOT NULL DEFAULT ''",
+                    "owner_uid": "TEXT NOT NULL DEFAULT ''",
+                    "owner_email": "TEXT NOT NULL DEFAULT ''",
+                },
+            )
+            conn.execute(
+                """
+                UPDATE analysis_reports
+                SET owner_key = CASE
+                        WHEN instr(owner, '@') > 1
+                            THEN 'email:' || lower(trim(owner))
+                        ELSE 'uid:' || trim(owner)
+                    END,
+                    owner_email = CASE
+                        WHEN instr(owner, '@') > 1 THEN lower(trim(owner))
+                        ELSE owner_email
+                    END,
+                    owner_uid = CASE
+                        WHEN instr(owner, '@') > 1 THEN owner_uid
+                        ELSE trim(owner)
+                    END
+                WHERE trim(owner_key) = '' AND trim(owner) != ''
                 """
             )
             if self._get_setting(conn, "encryption_key") is None:
                 self._set_setting(conn, "encryption_key", _b64(secrets.token_bytes(32)))
+
+    def _ensure_columns(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        columns: dict[str, str],
+    ) -> None:
+        existing = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for name, declaration in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
 
     def _get_setting(self, conn: sqlite3.Connection, key: str) -> str | None:
         row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
@@ -391,6 +483,19 @@ class AdminStore:
             ).fetchone()
         if row is None:
             return None
+        return self._runtime_model_row(row)
+
+    def get_runtime_model_config(self, item_id: int) -> RuntimeModelConfig | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM model_configs WHERE id = ?",
+                (int(item_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._runtime_model_row(row)
+
+    def _runtime_model_row(self, row: sqlite3.Row) -> RuntimeModelConfig:
         return RuntimeModelConfig(
             provider=row["provider"],
             base_url=row["base_url"],
@@ -405,6 +510,259 @@ class AdminStore:
         out.pop("api_key_nonce", None)
         out["enabled"] = bool(out["enabled"])
         out["is_default"] = bool(out["is_default"])
+        return out
+
+    # ------------------------------------------------------------------
+    # Durable analysis runs
+    # ------------------------------------------------------------------
+    def create_analysis_run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_key = str(payload.get("owner_key") or "").strip()
+        ticker = str(payload.get("ticker") or "").strip()
+        trade_date = str(payload.get("trade_date") or "").strip()
+        if not owner_key:
+            raise ValueError("owner_key is required")
+        if not ticker:
+            raise ValueError("ticker is required")
+        if not trade_date:
+            raise ValueError("trade_date is required")
+
+        run_id = str(payload.get("id") or uuid.uuid4())
+        now = _now()
+        analysts = json.dumps(payload.get("analysts") or [], ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            active = conn.execute(
+                """
+                SELECT * FROM analysis_runs
+                WHERE owner_key = ? AND status IN ('queued', 'running')
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (owner_key,),
+            ).fetchone()
+            if active is not None:
+                raise ActiveRunExists(self._analysis_run_row(active))
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO analysis_runs (
+                        id, owner_key, owner_uid, owner_email, ticker, stock_name,
+                        trade_date, asset_type, analysts, status, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                    """,
+                    (
+                        run_id,
+                        owner_key,
+                        str(payload.get("owner_uid") or "").strip(),
+                        str(payload.get("owner_email") or "").strip().lower(),
+                        ticker,
+                        str(payload.get("stock_name") or "").strip(),
+                        trade_date,
+                        str(payload.get("asset_type") or "stock").strip(),
+                        analysts,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                active = conn.execute(
+                    """
+                    SELECT * FROM analysis_runs
+                    WHERE owner_key = ? AND status IN ('queued', 'running')
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (owner_key,),
+                ).fetchone()
+                if active is not None:
+                    raise ActiveRunExists(self._analysis_run_row(active)) from exc
+                raise
+            row = conn.execute(
+                "SELECT * FROM analysis_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+            conn.commit()
+        return self._analysis_run_row(row)
+
+    def claim_analysis_run(self, run_id: str) -> dict[str, Any] | None:
+        now = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE analysis_runs
+                SET status = 'running', started_at = COALESCE(started_at, ?),
+                    heartbeat_at = ?, error_type = '', error_message = ''
+                WHERE id = ? AND status = 'queued'
+                """,
+                (now, now, str(run_id)),
+            )
+            if cur.rowcount != 1:
+                conn.commit()
+                return None
+            row = conn.execute(
+                "SELECT * FROM analysis_runs WHERE id = ?", (str(run_id),)
+            ).fetchone()
+            conn.commit()
+        return self._analysis_run_row(row)
+
+    def touch_analysis_run(self, run_id: str, current_agent: str = "") -> None:
+        with self._connect() as conn:
+            if current_agent:
+                conn.execute(
+                    "UPDATE analysis_runs SET heartbeat_at = ?, current_agent = ? WHERE id = ?",
+                    (_now(), current_agent, str(run_id)),
+                )
+            else:
+                conn.execute(
+                    "UPDATE analysis_runs SET heartbeat_at = ? WHERE id = ?",
+                    (_now(), str(run_id)),
+                )
+            conn.commit()
+
+    def append_analysis_event(self, run_id: str, event: Any) -> dict[str, Any]:
+        event_name = str(getattr(event, "event", "") or "")
+        event_data = dict(getattr(event, "data", {}) or {})
+        if not event_name:
+            raise ValueError("event name is required")
+        now = _now()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT last_event_seq FROM analysis_runs WHERE id = ?",
+                (str(run_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("analysis run not found")
+            seq = int(row["last_event_seq"]) + 1
+            conn.execute(
+                """
+                INSERT INTO analysis_run_events (run_id, seq, event, data, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    str(run_id),
+                    seq,
+                    event_name,
+                    json.dumps(event_data, ensure_ascii=False, default=str),
+                    now,
+                ),
+            )
+            current_agent = str(event_data.get("agent") or event_data.get("current_agent") or "")
+            if current_agent:
+                conn.execute(
+                    """
+                    UPDATE analysis_runs
+                    SET last_event_seq = ?, heartbeat_at = ?, current_agent = ?
+                    WHERE id = ?
+                    """,
+                    (seq, now, current_agent, str(run_id)),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE analysis_runs SET last_event_seq = ?, heartbeat_at = ?
+                    WHERE id = ?
+                    """,
+                    (seq, now, str(run_id)),
+                )
+            conn.commit()
+        return {
+            "run_id": str(run_id),
+            "seq": seq,
+            "event": event_name,
+            "data": event_data,
+            "created_at": now,
+        }
+
+    def list_analysis_events(self, run_id: str, after: int = 0) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id, seq, event, data, created_at
+                FROM analysis_run_events
+                WHERE run_id = ? AND seq > ? ORDER BY seq
+                """,
+                (str(run_id), int(after)),
+            ).fetchall()
+        return [self._analysis_event_row(row) for row in rows]
+
+    def get_analysis_run(self, run_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM analysis_runs WHERE id = ?", (str(run_id),)
+            ).fetchone()
+        return None if row is None else self._analysis_run_row(row)
+
+    def get_active_analysis_run(self, owner_key: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM analysis_runs
+                WHERE owner_key = ? AND status IN ('queued', 'running')
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (str(owner_key),),
+            ).fetchone()
+        return None if row is None else self._analysis_run_row(row)
+
+    def list_queued_analysis_runs(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analysis_runs WHERE status = 'queued' ORDER BY created_at"
+            ).fetchall()
+        return [self._analysis_run_row(row) for row in rows]
+
+    def complete_analysis_run(self, run_id: str, report_id: int | None = None) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE analysis_runs
+                SET status = 'completed', report_id = ?, finished_at = ?,
+                    heartbeat_at = ?, current_agent = ''
+                WHERE id = ?
+                """,
+                (report_id, _now(), _now(), str(run_id)),
+            )
+            conn.commit()
+
+    def fail_analysis_run(
+        self,
+        run_id: str,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE analysis_runs
+                SET status = 'failed', error_type = ?, error_message = ?,
+                    finished_at = ?, heartbeat_at = ?, current_agent = ''
+                WHERE id = ?
+                """,
+                (str(error_type), str(error_message), _now(), _now(), str(run_id)),
+            )
+            conn.commit()
+
+    def mark_interrupted_runs_failed(self) -> int:
+        now = _now()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE analysis_runs
+                SET status = 'failed', error_type = 'WorkerInterrupted',
+                    error_message = '分析服务重启，运行中的任务已中断。',
+                    finished_at = ?, heartbeat_at = ?, current_agent = ''
+                WHERE status = 'running'
+                """,
+                (now, now),
+            )
+            conn.commit()
+        return int(cur.rowcount)
+
+    def _analysis_run_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        out = dict(row)
+        out["analysts"] = json.loads(out.get("analysts") or "[]")
+        return out
+
+    def _analysis_event_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        out = dict(row)
+        out["data"] = json.loads(out.get("data") or "{}")
         return out
 
     # ------------------------------------------------------------------
@@ -428,15 +786,34 @@ class AdminStore:
         sections = json.dumps(clean_sections, ensure_ascii=False)
         decision = str(payload.get("decision") or "").strip()
         owner = str(payload.get("owner") or "").strip()
+        run_id = str(payload.get("run_id") or "").strip() or None
+        stock_name = str(payload.get("stock_name") or "").strip()
+        owner_key = str(payload.get("owner_key") or "").strip()
+        owner_uid = str(payload.get("owner_uid") or "").strip()
+        owner_email = str(payload.get("owner_email") or owner or "").strip().lower()
         with self._connect() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO analysis_reports (
-                    ticker, trade_date, analysts, sections, decision, owner, created_at
+                    ticker, trade_date, analysts, sections, decision, owner, created_at,
+                    run_id, stock_name, owner_key, owner_uid, owner_email
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (ticker, trade_date, analysts, sections, decision, owner, _now()),
+                (
+                    ticker,
+                    trade_date,
+                    analysts,
+                    sections,
+                    decision,
+                    owner,
+                    _now(),
+                    run_id,
+                    stock_name,
+                    owner_key,
+                    owner_uid,
+                    owner_email,
+                ),
             )
             row = conn.execute(
                 "SELECT * FROM analysis_reports WHERE id = ?", (cur.lastrowid,)
@@ -444,27 +821,61 @@ class AdminStore:
             conn.commit()
         return self._report_row(row, include_sections=True)
 
-    def list_analysis_reports(self, limit: int = 100) -> list[dict[str, Any]]:
+    def list_analysis_reports(
+        self,
+        limit: int = 100,
+        owner_key: str | None = None,
+    ) -> list[dict[str, Any]]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM analysis_reports ORDER BY id DESC LIMIT ?",
-                (int(limit),),
-            ).fetchall()
+            if owner_key is None:
+                rows = conn.execute(
+                    "SELECT * FROM analysis_reports ORDER BY id DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM analysis_reports
+                    WHERE owner_key = ? ORDER BY id DESC LIMIT ?
+                    """,
+                    (str(owner_key), int(limit)),
+                ).fetchall()
         return [self._report_row(row, include_sections=False) for row in rows]
 
-    def get_analysis_report(self, item_id: int) -> dict[str, Any] | None:
+    def get_analysis_report(
+        self,
+        item_id: int,
+        owner_key: str | None = None,
+    ) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM analysis_reports WHERE id = ?", (int(item_id),)
-            ).fetchone()
+            if owner_key is None:
+                row = conn.execute(
+                    "SELECT * FROM analysis_reports WHERE id = ?", (int(item_id),)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT * FROM analysis_reports WHERE id = ? AND owner_key = ?
+                    """,
+                    (int(item_id), str(owner_key)),
+                ).fetchone()
         if row is None:
             return None
         return self._report_row(row, include_sections=True)
 
-    def delete_analysis_report(self, item_id: int) -> None:
+    def delete_analysis_report(self, item_id: int, owner_key: str | None = None) -> bool:
         with self._connect() as conn:
-            conn.execute("DELETE FROM analysis_reports WHERE id = ?", (int(item_id),))
+            if owner_key is None:
+                cur = conn.execute(
+                    "DELETE FROM analysis_reports WHERE id = ?", (int(item_id),)
+                )
+            else:
+                cur = conn.execute(
+                    "DELETE FROM analysis_reports WHERE id = ? AND owner_key = ?",
+                    (int(item_id), str(owner_key)),
+                )
             conn.commit()
+        return cur.rowcount == 1
 
     def _report_row(self, row: sqlite3.Row, include_sections: bool) -> dict[str, Any]:
         out = dict(row)

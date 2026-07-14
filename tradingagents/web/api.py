@@ -2,23 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
+import time
 from typing import Any
 
-from .admin_store import get_admin_store
+from .admin_store import ActiveRunExists, get_admin_store
 from .events import AnalysisEvent, sse_encode
-from .runner import AnalysisRequest, create_graph_for_request, stream_analysis_events
+from .identity import IdentityRequired, Principal
+from .model_catalog import CatalogUnsupported, ModelCatalogError, get_model_catalog
 from .stock_directory import get_stock_directory
-
-
-def _summarize_decision(text: str) -> str:
-    """Reduce a final-decision report to a short, list-friendly summary line."""
-    for line in str(text or "").splitlines():
-        stripped = line.strip().lstrip("#").strip()
-        if stripped:
-            return stripped[:120]
-    return ""
-
+from .task_service import create_task_service
 
 STATIC_DIR = Path(__file__).with_name("static")
 ADMIN_HTML = STATIC_DIR / "admin.html"
@@ -31,7 +25,7 @@ def create_app():
     optional dependency merely to import the package.
     """
     try:
-        from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, Response
+        from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
         from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
@@ -45,6 +39,16 @@ def create_app():
     app = FastAPI(title="TradingAgents Web")
     app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
     store = get_admin_store()
+    task_service = create_task_service(store)
+    app.state.task_service = task_service
+
+    @app.on_event("startup")
+    def recover_analysis_tasks():
+        task_service.recover()
+
+    @app.on_event("shutdown")
+    def stop_analysis_tasks():
+        task_service.shutdown(wait=True)
 
     @app.middleware("http")
     async def no_cache_local_workbench_assets(request: Request, call_next):
@@ -58,6 +62,55 @@ def create_app():
         if auth.lower().startswith("bearer "):
             return auth.split(" ", 1)[1].strip()
         return request.cookies.get("ta_admin")
+
+    def _principal_from_request(
+        request: Request,
+        access_email: str | None = None,
+    ) -> Principal:
+        is_admin = store.verify_admin_session(_admin_token(request))
+        if not store.admin_password_is_configured():
+            is_admin = True
+        try:
+            return Principal.from_values(
+                uid=(
+                    request.headers.get("x-cloudbase-uid")
+                    or request.headers.get("x-user-uid")
+                ),
+                email=(
+                    request.headers.get("x-cloudbase-email")
+                    or request.headers.get("x-user-email")
+                    or access_email
+                ),
+                is_admin=is_admin,
+            )
+        except IdentityRequired as exc:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error_type": "IdentityRequired",
+                    "message": "请先登录或提供有效访问身份。",
+                },
+            ) from exc
+
+    def _require_allowed_principal(principal: Principal, action: str) -> None:
+        if principal.is_admin:
+            return
+        if not store.is_identity_allowed(principal.email, principal.uid):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_type": "AccessDenied",
+                    "message": f"当前账号不在白名单中，无法发起{action}。",
+                },
+            )
+
+    def _require_owned_run(run_id: str, principal: Principal) -> dict[str, Any]:
+        run = store.get_analysis_run(run_id)
+        if run is None or (
+            not principal.is_admin and run["owner_key"] != principal.owner_key
+        ):
+            raise HTTPException(status_code=404, detail="analysis run not found")
+        return run
 
     def require_admin(request: Request) -> None:
         if not store.verify_admin_session(_admin_token(request)):
@@ -88,19 +141,34 @@ def create_app():
         return {"items": get_stock_directory().search(q, limit)}
 
     @app.get("/api/reports")
-    def list_reports():
-        return {"items": store.list_analysis_reports()}
+    def list_reports(request: Request, access_email: str | None = Query(None)):
+        principal = _principal_from_request(request, access_email)
+        owner_key = None if principal.is_admin else principal.owner_key
+        return {"items": store.list_analysis_reports(owner_key=owner_key)}
 
     @app.get("/api/reports/{item_id}")
-    def get_report(item_id: int):
-        report = store.get_analysis_report(item_id)
+    def get_report(
+        item_id: int,
+        request: Request,
+        access_email: str | None = Query(None),
+    ):
+        principal = _principal_from_request(request, access_email)
+        owner_key = None if principal.is_admin else principal.owner_key
+        report = store.get_analysis_report(item_id, owner_key=owner_key)
         if report is None:
             raise HTTPException(status_code=404, detail="report not found")
         return {"item": report}
 
     @app.delete("/api/reports/{item_id}")
-    def delete_report(item_id: int):
-        store.delete_analysis_report(item_id)
+    def delete_report(
+        item_id: int,
+        request: Request,
+        access_email: str | None = Query(None),
+    ):
+        principal = _principal_from_request(request, access_email)
+        owner_key = None if principal.is_admin else principal.owner_key
+        if not store.delete_analysis_report(item_id, owner_key=owner_key):
+            raise HTTPException(status_code=404, detail="report not found")
         return {"ok": True}
 
     @app.get("/api/admin/status")
@@ -171,6 +239,45 @@ def create_app():
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"item": item}
 
+    @app.post("/api/admin/model-catalog")
+    def fetch_model_catalog(request: Request, payload: dict[str, Any] = Body(...)):
+        require_admin(request)
+        provider = str(payload.get("provider") or "").strip().lower()
+        api_key = str(payload.get("api_key") or "")
+        base_url = str(payload.get("base_url") or "").strip() or None
+        config_id = payload.get("config_id")
+        if config_id and not api_key:
+            runtime = store.get_runtime_model_config(int(config_id))
+            if runtime is None:
+                raise HTTPException(status_code=404, detail="model config not found")
+            provider = provider or runtime.provider
+            api_key = runtime.api_key
+            base_url = base_url or runtime.base_url
+        if not provider:
+            raise HTTPException(status_code=400, detail="provider is required")
+        try:
+            models = get_model_catalog().fetch(provider, api_key, base_url)
+        except CatalogUnsupported as exc:
+            return {
+                "models": [],
+                "source": "manual",
+                "message": str(exc),
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+            }
+        except ModelCatalogError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                },
+            ) from exc
+        return {
+            "models": [model.as_dict() for model in models],
+            "source": "provider_api",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     @app.post("/api/admin/model-configs/{item_id}/set-default")
     def set_default_model_config(item_id: int, request: Request):
         require_admin(request)
@@ -186,105 +293,116 @@ def create_app():
         store.delete_model_config(item_id)
         return {"ok": True}
 
-    def _identity_from_request(
-        access_email: str | None,
-        x_cloudbase_uid: str | None,
-        x_cloudbase_email: str | None,
-        x_user_uid: str | None,
-        x_user_email: str | None,
-    ) -> dict[str, Any]:
-        return {
-            "uid": x_cloudbase_uid or x_user_uid or "",
-            "email": x_cloudbase_email or x_user_email or access_email or "",
-        }
-
-    def _require_allowed_identity(
-        identity: dict[str, Any], action: str, request: Request
-    ) -> None:
-        if store.verify_admin_session(_admin_token(request)):
-            return
-        if not store.is_identity_allowed(identity["email"], identity["uid"]):
-            raise HTTPException(status_code=403, detail=f"当前账号不在白名单中，无法发起{action}。")
-
-    @app.get("/api/events")
-    def events(
+    @app.post("/api/runs", status_code=201)
+    def create_run(
         request: Request,
-        ticker: str = Query(..., min_length=1),
-        trade_date: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
-        asset_type: str = Query("stock"),
-        analysts: str = Query("market,news,fundamentals"),
+        payload: dict[str, Any] = Body(...),
         access_email: str | None = Query(None),
-        x_cloudbase_uid: str | None = Header(None),
-        x_cloudbase_email: str | None = Header(None),
-        x_user_uid: str | None = Header(None),
-        x_user_email: str | None = Header(None),
     ):
-        selected = tuple(part.strip() for part in analysts.split(",") if part.strip())
-        request_model = AnalysisRequest(
-            ticker=ticker,
-            trade_date=trade_date,
-            asset_type=asset_type,
-            analysts=selected or ("market", "news", "fundamentals"),
+        principal = _principal_from_request(request, access_email)
+        _require_allowed_principal(principal, "分析")
+        ticker = str(payload.get("ticker") or "").strip()
+        trade_date = str(payload.get("trade_date") or "").strip()
+        if not ticker or not trade_date:
+            raise HTTPException(status_code=400, detail="ticker and trade_date are required")
+        analysts = [
+            str(item).strip()
+            for item in (payload.get("analysts") or ["market", "news", "fundamentals"])
+            if str(item).strip()
+        ]
+        stock_name = str(payload.get("stock_name") or "").strip()
+        try:
+            for item in get_stock_directory().search(ticker, 10):
+                if item["code"].upper() == ticker.upper():
+                    stock_name = item["name"]
+                    break
+        except Exception:  # noqa: BLE001 - name lookup must not block analysis
+            pass
+        try:
+            run = store.create_analysis_run(
+                {
+                    "owner_key": principal.owner_key,
+                    "owner_uid": principal.uid,
+                    "owner_email": principal.email,
+                    "ticker": ticker,
+                    "stock_name": stock_name,
+                    "trade_date": trade_date,
+                    "asset_type": str(payload.get("asset_type") or "stock"),
+                    "analysts": analysts,
+                }
+            )
+        except ActiveRunExists as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "ActiveRunExists",
+                    "message": "当前用户已有正在执行或排队中的分析任务。",
+                    "run": exc.run,
+                },
+            ) from exc
+        task_service.submit(run["id"])
+        return {"run": run}
+
+    @app.get("/api/runs/active")
+    def get_active_run(
+        request: Request,
+        access_email: str | None = Query(None),
+        owner_key: str | None = Query(None),
+    ):
+        principal = _principal_from_request(request, access_email)
+        lookup_owner = (
+            str(owner_key).strip()
+            if principal.is_admin and owner_key
+            else principal.owner_key
         )
-        is_admin = store.verify_admin_session(_admin_token(request))
+        return {"run": store.get_active_analysis_run(lookup_owner)}
+
+    @app.get("/api/runs/{run_id}")
+    def get_run(
+        run_id: str,
+        request: Request,
+        access_email: str | None = Query(None),
+    ):
+        principal = _principal_from_request(request, access_email)
+        return {"run": _require_owned_run(run_id, principal)}
+
+    @app.get("/api/runs/{run_id}/events")
+    def get_run_events(
+        run_id: str,
+        request: Request,
+        after: int = Query(0, ge=0),
+        access_email: str | None = Query(None),
+    ):
+        principal = _principal_from_request(request, access_email)
+        _require_owned_run(run_id, principal)
+        return {"items": store.list_analysis_events(run_id, after=after)}
+
+    @app.get("/api/runs/{run_id}/stream")
+    def stream_run_events(
+        run_id: str,
+        request: Request,
+        after: int = Query(0, ge=0),
+        access_email: str | None = Query(None),
+    ):
+        principal = _principal_from_request(request, access_email)
+        _require_owned_run(run_id, principal)
 
         def body():
-            identity = _identity_from_request(
-                access_email,
-                x_cloudbase_uid,
-                x_cloudbase_email,
-                x_user_uid,
-                x_user_email,
-            )
-            if not is_admin and not store.is_identity_allowed(
-                identity["email"], identity["uid"]
-            ):
-                yield sse_encode(
-                    AnalysisEvent(
-                        "run_failed",
-                        {
-                            "error_type": "AccessDenied",
-                            "message": "当前账号不在白名单中，无法发起分析。",
-                        },
-                    )
-                )
-                return
-            try:
-                graph = create_graph_for_request(request_model)
-            except Exception as exc:  # noqa: BLE001 - return visible SSE error
-                yield sse_encode(
-                    AnalysisEvent(
-                        "run_failed",
-                        {
-                            "error_type": type(exc).__name__,
-                            "message": str(exc),
-                        },
-                    )
-                )
-                return
-            collected_sections: dict[str, str] = {}
-            for event in stream_analysis_events(graph, request_model):
-                if event.event == "report_section_updated":
-                    section = str(event.data.get("section") or "")
-                    if section:
-                        collected_sections[section] = str(event.data.get("content") or "")
-                elif event.event == "run_completed" and collected_sections:
-                    try:
-                        store.save_analysis_report(
-                            {
-                                "ticker": request_model.ticker,
-                                "trade_date": request_model.trade_date,
-                                "analysts": list(request_model.analysts),
-                                "sections": collected_sections,
-                                "decision": _summarize_decision(
-                                    collected_sections.get("final_trade_decision", "")
-                                ),
-                                "owner": identity.get("email") or identity.get("uid") or "",
-                            }
-                        )
-                    except Exception:  # noqa: BLE001 - persistence must not break the stream
-                        pass
-                yield sse_encode(event)
+            cursor = int(after)
+            while True:
+                items = store.list_analysis_events(run_id, after=cursor)
+                for item in items:
+                    cursor = int(item["seq"])
+                    data = dict(item["data"])
+                    data.update({"seq": cursor, "run_id": run_id})
+                    yield sse_encode(AnalysisEvent(item["event"], data))
+                run = store.get_analysis_run(run_id)
+                if run is None or run["status"] in {"completed", "failed"}:
+                    if not store.list_analysis_events(run_id, after=cursor):
+                        return
+                if not items:
+                    yield ": keep-alive\n\n"
+                time.sleep(0.5)
 
         return StreamingResponse(body(), media_type="text/event-stream")
 

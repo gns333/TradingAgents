@@ -80,6 +80,9 @@ def test_workbench_js_contains_analysis_workspace_contract():
     assert "function parseAnalysisEventData(raw)" in js
     assert "parsed.data || {}" in js
     assert "function setAnalysisTicker(ticker, name)" in js
+    assert "async function restoreActiveRun()" in js
+    assert "function attachToRun(run" in js
+    assert "/api/runs" in js
     assert "new EventSource" in js
     assert "run_started" in js
     assert "report_section_updated" in js
@@ -142,7 +145,19 @@ def test_workbench_js_contains_provider_preset_contract():
     assert "function applyProviderPreset()" in js
     assert "https://api.deepseek.com" in js
     assert "readOnly" in js
-    assert "function fillModelSelect(select, models, allowCustom)" in js
+    assert "async function fetchModelCatalog()" in js
+    assert "/api/admin/model-catalog" in js
+    assert "quick_models:" not in js
+    assert "deep_models:" not in js
+
+
+def test_workbench_hides_empty_admin_error_and_uses_stock_names_in_reports():
+    css = (STATIC_DIR / "workbench.css").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text()
+
+    assert ".form-status:empty" in css
+    assert "function reportInstrumentLabel(report)" in js
+    assert "stock_name" in js
 
 
 def test_workbench_js_contains_admin_workspace_contract():

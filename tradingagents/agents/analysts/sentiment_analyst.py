@@ -33,6 +33,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
     get_news,
+    get_report_format_instruction,
 )
 from tradingagents.agents.utils.structured import (
     bind_structured,
@@ -189,7 +190,7 @@ Fill the following fields:
 - **confidence**: low / medium / high, based on data quality and sample size.
 - **narrative**: Full source-by-source breakdown, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment signals (direction, source, supporting evidence).
 
-{get_language_instruction()}"""
+{get_report_format_instruction()}{get_language_instruction()}"""
 
 
 def _build_china_system_message(
@@ -244,7 +245,7 @@ Fill the following fields:
 - **confidence**: low / medium / high, based on data quality and sample size.
 - **narrative**: Full source-by-source breakdown for 东方财富、雪球、同花顺 and news, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment/attention signals (direction, source, supporting evidence).
 
-{get_language_instruction()}"""
+{get_report_format_instruction()}{get_language_instruction()}"""
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,7 @@ __all__ = [
     "resolve_instrument_identity",
     "get_instrument_context_from_state",
     "get_language_instruction",
+    "get_report_format_instruction",
     "create_msg_delete",
 ]
 
@@ -63,6 +64,15 @@ def get_language_instruction() -> str:
     if lang.strip().lower() == "english":
         return ""
     return f" Write your entire response in {lang}."
+
+
+def get_report_format_instruction() -> str:
+    """Require Markdown without imposing one report outline on every role."""
+    return (
+        " Format the complete response as valid Markdown. Use headings, lists, "
+        "tables, quotes, or code blocks only when they improve clarity; no "
+        "section names or section order are required."
+    )
 
 
 def _clean_identity_value(value: Any) -> str | None:
@@ -212,6 +222,5 @@ def create_msg_delete():
         return {"messages": removal_operations + [placeholder]}
 
     return delete_messages
-
 
 

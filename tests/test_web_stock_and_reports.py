@@ -76,3 +76,49 @@ def test_report_history_save_list_get_delete(tmp_path: Path, monkeypatch):
     assert client.delete(f"/api/reports/{saved['id']}").status_code == 200
     assert client.get("/api/reports").json()["items"] == []
     assert client.get(f"/api/reports/{saved['id']}").status_code == 404
+
+
+def test_reports_are_owner_scoped_and_admin_sees_all(tmp_path: Path, monkeypatch):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.set_admin_password("correct-horse")
+    store.upsert_whitelist(
+        {"email": "a@example.com", "uid": "a", "status": "active"}
+    )
+    report_a = store.save_analysis_report(
+        {
+            "ticker": "600519.SH",
+            "stock_name": "贵州茅台",
+            "trade_date": "2026-07-14",
+            "analysts": ["market"],
+            "sections": {"market_report": "# A"},
+            "owner_key": "uid:a",
+            "owner_uid": "a",
+            "owner_email": "a@example.com",
+        }
+    )
+    report_b = store.save_analysis_report(
+        {
+            "ticker": "002594.SZ",
+            "stock_name": "比亚迪",
+            "trade_date": "2026-07-14",
+            "analysts": ["market"],
+            "sections": {"market_report": "# B"},
+            "owner_key": "uid:b",
+            "owner_uid": "b",
+            "owner_email": "b@example.com",
+        }
+    )
+    monkeypatch.setattr(api, "get_admin_store", lambda: store)
+    client = TestClient(api.create_app())
+    user_headers = {"x-user-uid": "a", "x-user-email": "a@example.com"}
+
+    listing = client.get("/api/reports", headers=user_headers).json()["items"]
+
+    assert [item["id"] for item in listing] == [report_a["id"]]
+    assert listing[0]["stock_name"] == "贵州茅台"
+    assert client.get(f"/api/reports/{report_b['id']}", headers=user_headers).status_code == 404
+
+    token = store.create_admin_session()
+    admin_headers = {"Authorization": f"Bearer {token}"}
+    admin_listing = client.get("/api/reports", headers=admin_headers).json()["items"]
+    assert {item["id"] for item in admin_listing} == {report_a["id"], report_b["id"]}

@@ -179,6 +179,15 @@ tradingagents-web --host 127.0.0.1 --port 8000
 ```
 Then open `http://127.0.0.1:8000`.
 
+The web workbench stores its administrator-managed model configuration in the
+application database. Analysis runs execute as background jobs: closing or
+refreshing the browser does not cancel a run, and reopening the workbench
+restores the current user's active run from persisted events. Each user can
+have one queued or running analysis at a time and sees only their own archived
+reports; administrators can inspect reports for all users. The current SQLite
+worker is intended for a single application instance and does not resume a
+partially executed LangGraph run after the server process itself restarts.
+
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
 cp .env.example .env

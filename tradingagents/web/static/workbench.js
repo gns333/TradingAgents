@@ -20,57 +20,49 @@
       label: 'DeepSeek',
       base_url: 'https://api.deepseek.com',
       editable_base_url: false,
-      quick_models: ['deepseek-chat', 'deepseek-v4-flash'],
-      deep_models: ['deepseek-reasoner', 'deepseek-v4-pro']
+      catalog_supported: true
     },
     openai: {
       label: 'OpenAI',
       base_url: '',
       editable_base_url: false,
-      quick_models: ['gpt-4.1-mini', 'gpt-4o-mini', 'gpt-5.4-mini'],
-      deep_models: ['gpt-4.1', 'gpt-4o', 'gpt-5.5']
+      catalog_supported: true
     },
     anthropic: {
       label: 'Anthropic',
       base_url: '',
       editable_base_url: false,
-      quick_models: ['claude-3-5-haiku-latest'],
-      deep_models: ['claude-sonnet-4-latest', 'claude-opus-4-latest']
+      catalog_supported: true
     },
     google: {
       label: 'Google Gemini',
       base_url: '',
       editable_base_url: false,
-      quick_models: ['gemini-2.5-flash'],
-      deep_models: ['gemini-2.5-pro']
+      catalog_supported: true
     },
     'qwen-cn': {
       label: '通义千问（国内）',
       base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       editable_base_url: false,
-      quick_models: ['qwen-turbo', 'qwen-plus'],
-      deep_models: ['qwen-max', 'qwen-plus']
+      catalog_supported: false
     },
     'glm-cn': {
       label: '智谱 GLM（国内）',
       base_url: 'https://open.bigmodel.cn/api/paas/v4/',
       editable_base_url: false,
-      quick_models: ['glm-4-flash', 'glm-4-air'],
-      deep_models: ['glm-4-plus']
+      catalog_supported: false
     },
     kimi: {
       label: 'Kimi（月之暗面）',
-      base_url: 'https://api.moonshot.ai/v1',
+      base_url: 'https://api.moonshot.cn/v1',
       editable_base_url: false,
-      quick_models: ['moonshot-v1-8k', 'moonshot-v1-32k'],
-      deep_models: ['moonshot-v1-128k']
+      catalog_supported: true
     },
     openai_compatible: {
       label: 'OpenAI 兼容 / 自建',
       base_url: '',
       editable_base_url: true,
-      quick_models: [],
-      deep_models: []
+      catalog_supported: true
     }
   };
 
@@ -82,6 +74,10 @@
     identityEmail: localStorage.getItem('ta_identity_email') || '',
     runState: '空闲',
     source: null,
+    activeRunId: '',
+    currentRun: null,
+    lastEventSeq: 0,
+    reconnectTimer: null,
     streamDone: false,
     eventTotal: 0,
     roleStates: {},
@@ -203,8 +199,23 @@
   async function apiJson(url, options = {}) {
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const detail = data.detail;
+      const message = typeof detail === 'object' && detail
+        ? detail.message || detail.error_type || `HTTP ${response.status}`
+        : detail || `HTTP ${response.status}`;
+      const error = new Error(message);
+      error.status = response.status;
+      error.detail = detail;
+      throw error;
+    }
     return data;
+  }
+
+  function withIdentity(url) {
+    const query = identityQuery().toString();
+    if (!query) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}${query}`;
   }
 
   function setAdminAvailable(available) {
@@ -290,6 +301,7 @@
   async function submitAdminAuth() {
     const password = qs('#admin-password')?.value || '';
     const status = qs('#admin-auth-status');
+    if (status) status.textContent = '';
     try {
       if (!state.adminPasswordConfigured) {
         await apiJson('/api/admin/setup', {
@@ -560,10 +572,14 @@
 
   function resetRunView() {
     if (state.source) state.source.close();
+    if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+    state.source = null;
+    state.reconnectTimer = null;
     state.reports = {};
     state.currentReportSection = '';
     state.streamDone = false;
     state.eventTotal = 0;
+    state.lastEventSeq = 0;
     setText('#event-count', '0');
     setText('#current-agent', '连接中');
     const log = qs('#log');
@@ -588,23 +604,116 @@
         return;
       }
     }
-    const params = new URLSearchParams({
+    const payload = {
       ticker: qs('#ticker')?.value.trim() || '',
+      stock_name: state.activeTicker.name || '',
       trade_date: qs('#trade-date')?.value || todayChinaDate(),
-      analysts: getSelectedAnalysts()
+      asset_type: 'stock',
+      analysts: selectedAnalystList()
+    };
+    try {
+      const result = await apiJson(withIdentity('/api/runs'), {
+        method: 'POST',
+        headers: adminHeaders(),
+        body: JSON.stringify(payload)
+      });
+      await attachToRun(result.run);
+    } catch (err) {
+      if (err.status === 409 && err.detail?.run) {
+        await attachToRun(err.detail.run);
+        return;
+      }
+      setRunState('启动失败', 'failed');
+      setText('#analysis-status', `分析启动失败：${err.message}`);
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function restoreActiveRun() {
+    try {
+      const data = await apiJson(withIdentity('/api/runs/active'), {
+        headers: adminHeaders()
+      });
+      if (data.run) {
+        await attachToRun(data.run);
+        return data.run;
+      }
+      state.activeRunId = '';
+      state.currentRun = null;
+      const button = qs('#run-analysis');
+      if (button) button.disabled = false;
+      return null;
+    } catch (err) {
+      if (err.status !== 401) setText('#analysis-status', `任务状态读取失败：${err.message}`);
+      return null;
+    }
+  }
+
+  async function attachToRun(run) {
+    if (!run?.id) return;
+    resetRunView();
+    state.activeRunId = run.id;
+    state.currentRun = run;
+    const button = qs('#run-analysis');
+    if (button) button.disabled = true;
+    setAnalysisTicker(run.ticker || '', run.stock_name || '');
+    const tickerInput = qs('#ticker');
+    const dateInput = qs('#trade-date');
+    if (tickerInput) tickerInput.value = run.ticker || '';
+    if (dateInput) dateInput.value = run.trade_date || todayChinaDate();
+    document.querySelectorAll('input[name="analyst"]').forEach(input => {
+      input.checked = (run.analysts || []).includes(input.value);
     });
+    resetTeamBoard(run.analysts || []);
+    setRunState(run.status === 'queued' ? '排队中' : '分析中', 'running');
+    setText('#analysis-status', run.status === 'queued' ? '任务已提交，等待执行' : '后台分析正在执行');
+    await loadPersistedRunEvents(run.id, 0);
+    if (!state.streamDone && state.activeRunId === run.id) subscribeToRun(run.id);
+  }
+
+  async function loadPersistedRunEvents(runId, after) {
+    const result = await apiJson(withIdentity(`/api/runs/${encodeURIComponent(runId)}/events?after=${after}`), {
+      headers: adminHeaders()
+    });
+    (result.items || []).forEach(item => {
+      handleAnalysisEvent(item.event, { ...(item.data || {}), seq: item.seq, run_id: runId });
+    });
+  }
+
+  function subscribeToRun(runId) {
+    if (state.source) state.source.close();
+    const params = new URLSearchParams({ after: String(state.lastEventSeq || 0) });
     identityQuery().forEach((value, key) => params.set(key, value));
-    state.source = new EventSource(`/api/events?${params}`);
+    state.source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream?${params}`);
     ['run_started', 'tool_called', 'agent_message', 'report_section_updated', 'run_completed', 'run_failed'].forEach(name => {
       state.source.addEventListener(name, event => handleAnalysisEvent(name, parseAnalysisEventData(event.data)));
     });
     state.source.onerror = () => {
       if (state.streamDone) return;
-      setRunState('连接中断', 'failed');
-      setText('#analysis-status', '连接中断或服务端报错');
-      if (button) button.disabled = false;
       if (state.source) state.source.close();
+      state.source = null;
+      setRunState('正在重连', 'running');
+      setText('#analysis-status', '实时连接中断，后台任务仍在执行，正在恢复进度');
+      if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+      state.reconnectTimer = setTimeout(resumeActiveRun, 1200);
     };
+  }
+
+  async function resumeActiveRun() {
+    if (!state.activeRunId || state.streamDone) return;
+    const runId = state.activeRunId;
+    try {
+      await loadPersistedRunEvents(runId, state.lastEventSeq || 0);
+      if (state.streamDone) return;
+      const result = await apiJson(withIdentity(`/api/runs/${encodeURIComponent(runId)}`), {
+        headers: adminHeaders()
+      });
+      state.currentRun = result.run;
+      subscribeToRun(runId);
+    } catch (err) {
+      setText('#analysis-status', `进度恢复失败，稍后重试：${err.message}`);
+      state.reconnectTimer = setTimeout(resumeActiveRun, 2000);
+    }
   }
 
   function parseAnalysisEventData(raw) {
@@ -623,6 +732,7 @@
   }
 
   function handleAnalysisEvent(event, data) {
+    if (Number(data.seq) > state.lastEventSeq) state.lastEventSeq = Number(data.seq);
     if (event === 'run_started') {
       resetTeamBoard(data.analysts || []);
       if (data.ticker) {
@@ -648,6 +758,9 @@
       addCollapsibleLog('报告更新', `${TEAM_ROLES[roleKey]?.label || data.section} 交付了 ${data.section}`, '协作轨迹', 'done');
     } else if (event === 'run_completed') {
       state.streamDone = true;
+      state.activeRunId = '';
+      state.currentRun = null;
+      if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
       Object.keys(state.roleStates).forEach(key => { state.roleStates[key] = 'done'; });
       renderTeamBoard();
       setRunState('分析完成', 'done');
@@ -660,6 +773,9 @@
       loadReportHistory();
     } else if (event === 'run_failed') {
       state.streamDone = true;
+      state.activeRunId = '';
+      state.currentRun = null;
+      if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
       const detail = `${data.error_type || 'Error'}: ${data.message || '未知错误'}`;
       setRunState('分析失败', 'failed');
       setText('#current-agent', '已停止');
@@ -869,7 +985,7 @@
     const root = qs('#reports-root');
     if (!root) return;
     try {
-      const data = await apiJson('/api/reports');
+      const data = await apiJson(withIdentity('/api/reports'), { headers: adminHeaders() });
       state.history = data.items || [];
       if (state.historyActiveId && !state.history.some(item => item.id === state.historyActiveId)) {
         state.historyActiveId = null;
@@ -881,9 +997,14 @@
     }
   }
 
+  function reportInstrumentLabel(report) {
+    if (report?.stock_name) return `${report.stock_name}（${report.ticker}）`;
+    return report?.ticker || '未知';
+  }
+
   function historyLabel(item) {
     const date = item.trade_date || (item.created_at || '').slice(0, 10);
-    return `${item.ticker || '未知'} · ${date}`;
+    return `${reportInstrumentLabel(item)} · ${date}`;
   }
 
   function renderReportCenter() {
@@ -947,7 +1068,7 @@
         if (!decision || decision.kind !== state.historyFilter) return false;
       }
       if (!query) return true;
-      return `${item.ticker || ''} ${item.name || ''}`.toLowerCase().includes(query);
+      return `${item.ticker || ''} ${item.stock_name || ''}`.toLowerCase().includes(query);
     });
   }
 
@@ -986,7 +1107,11 @@
         tag.textContent = '已归档';
         tags.appendChild(tag);
       }
-      open.querySelector('small').textContent = (item.created_at || '').replace('T', ' ').slice(0, 16);
+      const owner = state.adminToken
+        ? item.owner_email || item.owner_uid || '历史未归属'
+        : '';
+      const created = (item.created_at || '').replace('T', ' ').slice(0, 16);
+      open.querySelector('small').textContent = owner ? `${owner} · ${created}` : created;
       open.addEventListener('click', () => openHistoryReport(item.id));
 
       const del = document.createElement('button');
@@ -1004,7 +1129,7 @@
 
   async function openHistoryReport(id) {
     try {
-      const data = await apiJson(`/api/reports/${id}`);
+      const data = await apiJson(withIdentity(`/api/reports/${id}`), { headers: adminHeaders() });
       state.historyActiveId = id;
       state.historyReport = data.item || null;
       state.historyActiveSection = '';
@@ -1037,7 +1162,10 @@
   async function deleteHistoryReport(id) {
     if (typeof confirm === 'function' && !confirm('确认删除这份历史报告？')) return;
     try {
-      await apiJson(`/api/reports/${id}`, { method: 'DELETE' });
+      await apiJson(withIdentity(`/api/reports/${id}`), {
+        method: 'DELETE',
+        headers: adminHeaders()
+      });
       if (state.historyActiveId === id) {
         state.historyActiveId = null;
         state.historyReport = null;
@@ -1096,11 +1224,13 @@
               <input id="model-base-url" readonly>
               <p class="helper-text" id="model-base-url-hint">官方供应商地址已自动填充。</p>
               <label for="model-quick">快速模型</label>
-              <select id="model-quick"></select>
+              <input id="model-quick" list="model-options" autocomplete="off" placeholder="获取列表或手动输入模型 ID">
               <label for="model-deep">深度模型</label>
-              <select id="model-deep"></select>
+              <input id="model-deep" list="model-options" autocomplete="off" placeholder="可与快速模型相同">
+              <datalist id="model-options"></datalist>
               <label for="model-api-key">API Key</label>
               <input id="model-api-key" type="password" autocomplete="off">
+              <button class="secondary-button" type="button" id="fetch-model-catalog">获取模型列表</button>
               <button type="button" id="save-model-config">保存模型</button>
               <div class="status-box" id="model-status">等待保存</div>
             </div>
@@ -1139,6 +1269,7 @@
       </div>
     `;
     qs('#admin-logout')?.addEventListener('click', logoutAdmin);
+    qs('#fetch-model-catalog')?.addEventListener('click', fetchModelCatalog);
     qs('#save-model-config')?.addEventListener('click', saveModelConfig);
     qs('#save-whitelist')?.addEventListener('click', saveWhitelist);
     qs('#reload-admin-data')?.addEventListener('click', loadAdminData);
@@ -1150,24 +1281,16 @@
     });
   }
 
-  function fillModelSelect(select, models, allowCustom) {
-    if (!select) return;
-    select.innerHTML = '';
+  function fillModelOptions(models) {
+    const list = qs('#model-options');
+    if (!list) return;
+    list.textContent = '';
     models.forEach(model => {
       const option = document.createElement('option');
-      option.value = model;
-      option.textContent = model;
-      select.appendChild(option);
+      option.value = model.id;
+      option.label = model.display_name || model.id;
+      list.appendChild(option);
     });
-    if (allowCustom || !models.length) {
-      // Generic/self-hosted endpoints accept arbitrary model IDs.
-      select.innerHTML = '';
-      const editable = document.createElement('input');
-      editable.id = select.id;
-      editable.autocomplete = 'off';
-      editable.placeholder = '输入模型名称';
-      select.replaceWith(editable);
-    }
   }
 
   function applyProviderPreset() {
@@ -1190,11 +1313,42 @@
           ? '官方供应商地址已自动填充，不可修改。'
           : '该供应商使用官方默认地址，无需填写。';
     }
-    fillModelSelect(qs('#model-quick'), preset.quick_models, preset.editable_base_url);
-    fillModelSelect(qs('#model-deep'), preset.deep_models, preset.editable_base_url);
+    fillModelOptions([]);
+    const quick = qs('#model-quick');
+    const deep = qs('#model-deep');
+    if (quick) quick.value = '';
+    if (deep) deep.value = '';
+    setStatus(
+      '#model-status',
+      preset.catalog_supported ? '填写 API Key 后获取实时模型列表' : '该供应商请手动填写模型 ID',
+      undefined
+    );
     const nameInput = qs('#model-name');
     if (nameInput && !nameInput.dataset.touched) nameInput.value = `${preset.label} 默认`;
     nameInput?.addEventListener('input', () => { nameInput.dataset.touched = 'true'; }, { once: true });
+  }
+
+  async function fetchModelCatalog() {
+    const provider = qs('#model-provider')?.value || 'deepseek';
+    const apiKey = qs('#model-api-key')?.value || '';
+    const baseUrl = qs('#model-base-url')?.value || '';
+    setStatus('#model-status', '正在获取模型列表', undefined);
+    try {
+      const result = await apiJson('/api/admin/model-catalog', {
+        method: 'POST',
+        headers: adminHeaders(),
+        body: JSON.stringify({ provider, api_key: apiKey, base_url: baseUrl })
+      });
+      fillModelOptions(result.models || []);
+      if (result.source === 'manual') {
+        setStatus('#model-status', result.message || '请手动填写模型 ID', undefined);
+        return;
+      }
+      const count = (result.models || []).length;
+      setStatus('#model-status', `已获取 ${count} 个可用模型，两个模型可以选择相同值`, true);
+    } catch (err) {
+      setStatus('#model-status', `获取失败：${err.message}`, false);
+    }
   }
 
   function logoutAdmin() {
@@ -1298,11 +1452,13 @@
       button.addEventListener('click', () => showView(button.dataset.view));
     });
     qs('#theme-toggle')?.addEventListener('click', toggleTheme);
-    qs('#save-identity')?.addEventListener('click', () => {
+    qs('#save-identity')?.addEventListener('click', async () => {
       const email = qs('#identity-email')?.value.trim() || '';
       state.identityEmail = email;
       localStorage.setItem('ta_identity_email', email);
       updateIdentitySummary();
+      await restoreActiveRun();
+      if (state.view === 'reports') await loadReportHistory();
     });
     qs('#open-admin-login')?.addEventListener('click', openAdminEntry);
     qs('#close-admin-modal')?.addEventListener('click', closeAdminModal);
@@ -1310,9 +1466,11 @@
     renderAnalysisWorkspace();
     renderReportCenter();
     renderAdminWorkspace();
-    refreshAdminStatus().catch(err => {
-      setText('#identity-summary', `后台状态读取失败：${err.message}`);
-    });
+    refreshAdminStatus()
+      .catch(err => {
+        setText('#identity-summary', `后台状态读取失败：${err.message}`);
+      })
+      .finally(() => restoreActiveRun());
     showView(requestedView);
   }
 

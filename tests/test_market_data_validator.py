@@ -23,6 +23,38 @@ def _sample_ohlcv() -> pd.DataFrame:
 
 @pytest.mark.unit
 class TestVerifiedSnapshot:
+    def test_a_share_uses_baostock_after_akshare_disconnect(self, monkeypatch):
+        expected = _sample_ohlcv()
+        yahoo = pytest.fail
+        monkeypatch.setattr(
+            validator,
+            "get_config",
+            lambda: {
+                "data_vendors": {
+                    "core_stock_apis": "akshare,baostock,yfinance",
+                }
+            },
+            raising=False,
+        )
+        monkeypatch.setattr(
+            validator,
+            "get_akshare_stock_frame",
+            lambda *args: (_ for _ in ()).throw(
+                ConnectionError("Remote end closed connection without response")
+            ),
+        )
+        monkeypatch.setattr(
+            validator,
+            "get_baostock_stock_frame",
+            lambda *args: expected,
+            raising=False,
+        )
+        monkeypatch.setattr(validator, "load_ohlcv", yahoo)
+
+        result = validator._load_ohlcv("002624.SZ", "2026-05-20")
+
+        pd.testing.assert_frame_equal(result, expected)
+
     def test_excludes_future_rows(self, monkeypatch):
         data = pd.concat([
             _sample_ohlcv(),

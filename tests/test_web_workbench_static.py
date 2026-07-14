@@ -77,13 +77,13 @@ def test_workbench_js_contains_analysis_workspace_contract():
     js = (STATIC_DIR / "workbench.js").read_text()
 
     assert "function renderAnalysisWorkspace()" in js
-    assert "function parseAnalysisEventData(raw)" in js
-    assert "parsed.data || {}" in js
     assert "function setAnalysisTicker(ticker, name)" in js
     assert "async function restoreActiveRun()" in js
     assert "function attachToRun(run" in js
     assert "/api/runs" in js
-    assert "new EventSource" in js
+    assert "async function pollActiveRun(runId)" in js
+    assert "new EventSource" not in js
+    assert "实时连接中断" not in js
     assert "run_started" in js
     assert "report_section_updated" in js
 
@@ -101,13 +101,16 @@ def test_workbench_js_contains_terminal_redesign_contract():
     assert "function filteredHistory()" in js
 
 
-def test_workbench_syncs_admin_session_before_opening_event_stream():
+def test_workbench_polling_uses_authenticated_api_requests():
     js = (STATIC_DIR / "workbench.js").read_text()
 
     assert "async function startAnalysis()" in js
-    sync_index = js.index("await refreshAdminStatus()")
-    stream_index = js.index("new EventSource")
-    assert sync_index < stream_index
+    poll_start = js.index("async function pollActiveRun(runId)")
+    poll_body = js[poll_start : poll_start + 1800]
+    assert "loadPersistedRunEvents" in poll_body
+    assert "adminHeaders()" in poll_body
+    assert "scheduleRunPoll(runId)" in poll_body
+    assert "state.pollTimer = setTimeout" in js
 
 
 def test_workbench_js_contains_report_center_contract():

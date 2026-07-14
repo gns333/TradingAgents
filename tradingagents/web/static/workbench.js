@@ -73,11 +73,10 @@
     adminPasswordConfigured: false,
     identityEmail: localStorage.getItem('ta_identity_email') || '',
     runState: '空闲',
-    source: null,
     activeRunId: '',
     currentRun: null,
     lastEventSeq: 0,
-    reconnectTimer: null,
+    pollTimer: null,
     streamDone: false,
     eventTotal: 0,
     roleStates: {},
@@ -571,10 +570,8 @@
   }
 
   function resetRunView() {
-    if (state.source) state.source.close();
-    if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
-    state.source = null;
-    state.reconnectTimer = null;
+    if (state.pollTimer) clearTimeout(state.pollTimer);
+    state.pollTimer = null;
     state.reports = {};
     state.currentReportSection = '';
     state.streamDone = false;
@@ -668,7 +665,7 @@
     setRunState(run.status === 'queued' ? '排队中' : '分析中', 'running');
     setText('#analysis-status', run.status === 'queued' ? '任务已提交，等待执行' : '后台分析正在执行');
     await loadPersistedRunEvents(run.id, 0);
-    if (!state.streamDone && state.activeRunId === run.id) subscribeToRun(run.id);
+    if (!state.streamDone && state.activeRunId === run.id) pollActiveRun(run.id);
   }
 
   async function loadPersistedRunEvents(runId, after) {
@@ -680,28 +677,13 @@
     });
   }
 
-  function subscribeToRun(runId) {
-    if (state.source) state.source.close();
-    const params = new URLSearchParams({ after: String(state.lastEventSeq || 0) });
-    identityQuery().forEach((value, key) => params.set(key, value));
-    state.source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream?${params}`);
-    ['run_started', 'tool_called', 'agent_message', 'report_section_updated', 'run_completed', 'run_failed'].forEach(name => {
-      state.source.addEventListener(name, event => handleAnalysisEvent(name, parseAnalysisEventData(event.data)));
-    });
-    state.source.onerror = () => {
-      if (state.streamDone) return;
-      if (state.source) state.source.close();
-      state.source = null;
-      setRunState('正在重连', 'running');
-      setText('#analysis-status', '实时连接中断，后台任务仍在执行，正在恢复进度');
-      if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
-      state.reconnectTimer = setTimeout(resumeActiveRun, 1200);
-    };
+  function scheduleRunPoll(runId, delay = 700) {
+    if (state.pollTimer) clearTimeout(state.pollTimer);
+    state.pollTimer = setTimeout(() => pollActiveRun(runId), delay);
   }
 
-  async function resumeActiveRun() {
-    if (!state.activeRunId || state.streamDone) return;
-    const runId = state.activeRunId;
+  async function pollActiveRun(runId) {
+    if (!runId || state.activeRunId !== runId || state.streamDone) return;
     try {
       await loadPersistedRunEvents(runId, state.lastEventSeq || 0);
       if (state.streamDone) return;
@@ -709,25 +691,26 @@
         headers: adminHeaders()
       });
       state.currentRun = result.run;
-      subscribeToRun(runId);
-    } catch (err) {
-      setText('#analysis-status', `进度恢复失败，稍后重试：${err.message}`);
-      state.reconnectTimer = setTimeout(resumeActiveRun, 2000);
-    }
-  }
-
-  function parseAnalysisEventData(raw) {
-    try {
-      const parsed = JSON.parse(raw || '{}');
-      if (parsed && typeof parsed === 'object' && 'data' in parsed) {
-        return parsed.data || {};
+      if (result.run.status === 'completed') {
+        handleAnalysisEvent('run_completed', { run_id: runId });
+        return;
       }
-      return parsed || {};
+      if (result.run.status === 'failed') {
+        handleAnalysisEvent('run_failed', {
+          run_id: runId,
+          error_type: result.run.error_type,
+          message: result.run.error_message
+        });
+        return;
+      }
+      setRunState(result.run.status === 'queued' ? '排队中' : '分析中', 'running');
+      setText('#analysis-status', result.run.status === 'queued'
+        ? '任务已提交，等待执行'
+        : '后台分析正在执行，进度已同步');
+      scheduleRunPoll(runId);
     } catch (err) {
-      return {
-        error_type: 'ParseError',
-        message: `无法解析服务端事件：${err.message}`
-      };
+      setText('#analysis-status', `进度同步暂时失败，稍后重试：${err.message}`);
+      scheduleRunPoll(runId, 2000);
     }
   }
 
@@ -760,7 +743,7 @@
       state.streamDone = true;
       state.activeRunId = '';
       state.currentRun = null;
-      if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+      if (state.pollTimer) clearTimeout(state.pollTimer);
       Object.keys(state.roleStates).forEach(key => { state.roleStates[key] = 'done'; });
       renderTeamBoard();
       setRunState('分析完成', 'done');
@@ -769,13 +752,12 @@
       addCollapsibleLog('完成', '最终状态已生成，团队分析已结束。', '系统', 'done');
       const button = qs('#run-analysis');
       if (button) button.disabled = false;
-      if (state.source) state.source.close();
       loadReportHistory();
     } else if (event === 'run_failed') {
       state.streamDone = true;
       state.activeRunId = '';
       state.currentRun = null;
-      if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+      if (state.pollTimer) clearTimeout(state.pollTimer);
       const detail = `${data.error_type || 'Error'}: ${data.message || '未知错误'}`;
       setRunState('分析失败', 'failed');
       setText('#current-agent', '已停止');
@@ -783,7 +765,6 @@
       addCollapsibleLog('错误', detail, '系统', 'error');
       const button = qs('#run-analysis');
       if (button) button.disabled = false;
-      if (state.source) state.source.close();
     }
   }
 

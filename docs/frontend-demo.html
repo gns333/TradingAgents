@@ -16,25 +16,22 @@
 
   三个视图的逻辑与布局摘要：
 
-  1) 个股分析 view-analysis —— 三栏终端布局（宽屏 ≥1200px）
-     · 左栏 form-panel：股票代码(自动补全) / 日期 / 分析模块勾选 / 开始分析 / 状态
-     · 中栏 report-current-panel：当前报告主舞台，report-tabs 按 7 个 agent 切换，
+  1) 个股分析 view-analysis —— 顶部启动条 + 两栏终端布局（宽屏 ≥1200px）
+     · 顶部 analysis-launchbar：股票代码 / 日期 / 分析模块 / 开始分析 / 状态横向排布
+     · 左栏 report-current-panel：当前报告主舞台，report-tabs 按 7 个 agent 切换，
        final_trade_decision 顶部显示 Buy/Sell/Hold 决策徽章
-     · 右栏 analysis-side：Agent 流水线(pipe-node 三态:pending/active/done + 连接线)
-       + 过程时间线(event-item 三类:active/done/error，长文本 details 折叠)
+     · 启动条下方 agent-flow-panel：7 个 Agent 按分析层→决策层横向串联
+     · 右栏 analysis-side：过程时间线(event-item 三类:active/done/error，长文本 details 折叠)
      交互：点开始分析 → 轮询运行状态 → 流水线/时间线/报告实时更新。
 
   2) 报告中心 view-reports —— 两栏
-     · 左栏 history-panel：搜索框 + 决策筛选 chip(全部/买入/卖出/持有) + 卡片式历史列表
-       (纯前端过滤已加载列表；卡片含决策徽章、日期、归档时间；hover 显删除)
-     · 右栏 report-detail-panel：report-summary-head(标题+模块+决策徽章) + Tab 报告正文
+     · 左栏 history-panel：搜索框 + 决策分段筛选 + 紧凑历史列表
+     · 右栏 report-detail-panel：统一报告身份栏 + 7 个 Agent Tab + Markdown 正文
 
-  3) 后台管理 view-admin —— 两栏（需管理员登录）
-     · 顶部 admin-session-bar：登录态 + 退出
-     · 左栏 admin-forms：模型配置(供应商预设→Base URL 自动填充；datalist 输入模型；
-       获取模型列表按钮) + 白名单表单
-     · 右栏 admin-table-panel：模型表(默认徽章/Key 掩码/供应商标签) +
-       白名单表(状态色点徽章/每日次数等宽数字)
+  3) 后台管理 view-admin —— 对象 Tab + 主从编辑布局（需管理员登录）
+     · 顶部 admin-commandbar：模型管理 / 白名单切换 + 登录态
+     · 左栏 admin-list-panel：当前对象列表，选中行进入编辑状态
+     · 右栏 admin-editor-panel：新增与编辑共用的紧凑表单
 
   设计基调：深色 OLED 金融终端；品牌色=琥珀橙(避开红绿涨跌语义)；
   红涨绿跌(A股惯例)；数字统一 JetBrains Mono 等宽；[data-theme=light] 可切浅色。
@@ -175,12 +172,17 @@ button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 .app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100dvh; }
 
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 20px;
   padding: 18px 14px;
   border-right: 1px solid var(--line);
   background: var(--surface);
+  overflow-y: auto;
 }
 
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 4px; }
@@ -227,21 +229,38 @@ button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 
 .identity-card {
   margin-top: auto;
-  padding: 12px;
+  display: grid;
+  gap: 9px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
 }
-.identity-card h2 { margin: 0 0 8px; font-size: 12px; font-weight: 650; }
-.identity-summary {
-  min-height: 30px;
-  padding: 6px 9px;
+.identity-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.identity-head h2 { margin: 0; font-size: 12px; font-weight: 650; }
+.identity-head .dot-badge { color: var(--down); font-size: 10px; white-space: nowrap; }
+.identity-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 5px 4px 9px;
   border-radius: var(--radius);
   background: var(--bg);
-  color: var(--muted);
-  font-size: 12px;
-  overflow-wrap: anywhere;
+  border: 1px solid var(--line-soft);
 }
+.identity-email-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.identity-edit { width: auto; min-height: 26px; padding: 0 8px; font-size: 11px; }
 
 label, legend {
   display: block;
@@ -275,11 +294,11 @@ textarea { min-height: 68px; resize: vertical; }
 .main-shell { min-width: 0; display: flex; flex-direction: column; }
 
 .topbar {
-  min-height: 62px;
+  min-height: 56px;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 12px 22px;
+  gap: 16px;
+  padding: 9px 22px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(8px);
@@ -287,9 +306,21 @@ textarea { min-height: 68px; resize: vertical; }
   top: 0;
   z-index: 8;
 }
-.topbar-titles { min-width: 0; }
-.topbar h2 { font-size: 19px; font-weight: 700; letter-spacing: -.2px; }
-.topbar .eyebrow { text-transform: uppercase; letter-spacing: .8px; font-size: 11px; }
+.topbar-titles { min-width: 86px; }
+.topbar h2 { font-size: 18px; font-weight: 700; }
+.topbar-context {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.topbar-context[hidden] { display: none; }
 .topbar-spacer { flex: 1; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 
@@ -339,6 +370,7 @@ textarea { min-height: 68px; resize: vertical; }
 .state-pill.done::before { background: var(--down); }
 .state-pill.failed { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .state-pill.failed::before { background: var(--danger); }
+.state-pill[hidden] { display: none; }
 
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.7); } }
 
@@ -348,11 +380,151 @@ textarea { min-height: 68px; resize: vertical; }
 @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 .workspace-grid { display: grid; gap: 16px; }
-.analysis-grid { grid-template-columns: 300px minmax(0, 1fr) 300px; align-items: start; }
-.admin-grid { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); align-items: start; }
-.form-panel { position: sticky; top: 82px; }
-.analysis-side { display: grid; gap: 16px; }
+.analysis-layout { display: grid; gap: 16px; }
+.analysis-grid { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
+.admin-grid { grid-template-columns: 1fr; align-items: start; }
+.analysis-side { min-width: 0; }
 .run-panel, .timeline-panel, .report-current-panel, .report-detail-panel, .admin-table-panel { min-width: 0; }
+
+.analysis-launchbar {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) 160px minmax(390px, 1.8fr) 108px;
+  align-items: end;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.launch-field { min-width: 0; }
+.analysis-launchbar .launch-field > label,
+.analysis-launchbar .launch-label {
+  display: block;
+  margin: 0 0 5px;
+  line-height: 1.2;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 600;
+}
+.analysis-launchbar input:not([type="checkbox"]) {
+  min-height: 38px;
+  border-color: var(--line-soft);
+  background: var(--bg);
+}
+.analysis-launchbar .launch-field:first-child input {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.launch-modules { min-width: 0; margin: 0; }
+.launch-modules .module-fieldset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 3px;
+  min-height: 38px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.launch-modules .check-option {
+  flex: 0 1 auto;
+  min-height: 30px;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.launch-modules .check-option:hover { background: var(--surface-2); }
+.launch-modules .check-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.launch-modules .check-option input { width: 14px; height: 14px; }
+.launch-action { width: 108px; min-height: 38px; padding-inline: 12px; }
+
+.agent-flow-panel { min-width: 0; }
+.flow-summary { display: flex; align-items: center; gap: 10px; }
+.flow-current {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+.flow-current::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.flow-count { color: var(--muted); font-size: 12px; }
+.agent-flow-scroll { overflow-x: auto; padding: 15px 16px 13px; }
+.agent-flow {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(92px, 1fr));
+  min-width: 720px;
+}
+.flow-node {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  padding: 0 7px;
+  text-align: center;
+}
+.flow-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 14px;
+  left: calc(50% + 14px);
+  width: calc(100% - 28px);
+  height: 2px;
+  background: var(--line);
+}
+.flow-node.done:not(:last-child)::after { background: var(--down); }
+.flow-marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font: 700 12px/1 var(--mono);
+}
+.flow-node.done .flow-marker { border-color: var(--down); background: var(--down); color: #fff; }
+.flow-node.active .flow-marker {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 0 0 6px var(--accent-soft);
+}
+.flow-role { margin-top: 3px; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.flow-kind { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.flow-status { color: var(--faint); font-size: 10px; font-weight: 600; }
+.flow-node.done .flow-status { color: var(--down); }
+.flow-node.active .flow-status { color: var(--accent); }
 
 .panel {
   border: 1px solid var(--line);
@@ -474,7 +646,8 @@ textarea { min-height: 68px; resize: vertical; }
 .decision-badge.sell::before { content: "▼"; }
 .decision-badge.hold::before { content: "＝"; }
 
-.timeline { max-height: 420px; overflow: auto; padding: 8px 15px 14px; }
+.timeline-panel { position: sticky; top: 73px; }
+.timeline { max-height: min(520px, calc(100dvh - 145px)); overflow: auto; padding: 8px 15px 14px; }
 .event-item { position: relative; padding: 10px 0 10px 14px; border-bottom: 1px solid var(--line-soft); }
 .event-item:last-child { border-bottom: 0; }
 .event-item::before {
@@ -490,7 +663,14 @@ textarea { min-height: 68px; resize: vertical; }
 .event-item.error::before { background: var(--danger); }
 .event-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .event-title strong { font-size: 13px; font-weight: 600; }
-.event-title span { color: var(--faint); font-size: 11px; }
+.event-meta { display: inline-flex; align-items: center; gap: 7px; color: var(--faint); font-size: 11px; white-space: nowrap; }
+.event-meta time {
+  padding-left: 7px;
+  border-left: 1px solid var(--line);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
 .event-item p { margin: 5px 0 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
 .event-item details { margin-top: 8px; }
 .event-item summary { cursor: pointer; color: var(--accent); font-size: 12px; }
@@ -551,6 +731,32 @@ textarea { min-height: 68px; resize: vertical; }
 .dot-badge.blocked::before { background: var(--danger); }
 
 .combo { position: relative; }
+.ticker-combo input { padding-right: 96px; }
+.ticker-name-chip {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  max-width: 84px;
+  padding: 0 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.ticker-combo:focus-within .ticker-name-chip {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  color: var(--text);
+}
 .combo-menu {
   position: absolute;
   z-index: 14;
@@ -583,14 +789,36 @@ textarea { min-height: 68px; resize: vertical; }
 .combo-item strong { font-size: 13px; font-weight: 600; }
 .combo-item span { color: var(--muted); font-size: 12px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
+.report-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 58px;
+  padding: 10px 15px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.report-identity { min-width: 0; display: grid; gap: 3px; }
+.report-identity-main { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.report-code { font: 700 14px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.report-name { font-size: 14px; font-weight: 650; }
+.report-meta { color: var(--faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-toolbar .decision-badge { padding: 2px 8px; font-size: 11px; }
 .report-viewer { padding: 0 0 12px; }
-.report-current-panel .report-viewer, .report-detail-panel .report-viewer { max-height: calc(100dvh - 220px); overflow: auto; }
+.report-current-panel, .report-detail-panel { overflow: visible; }
+.report-current-panel .report-viewer, .report-detail-panel .report-viewer { max-height: none; overflow: visible; }
 .report-tabs {
+  position: sticky;
+  top: 57px;
+  z-index: 3;
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  padding: 12px 15px 0;
+  padding: 8px 15px 0;
   border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(8px);
   scrollbar-width: thin;
 }
 .report-tab {
@@ -607,7 +835,7 @@ textarea { min-height: 68px; resize: vertical; }
 }
 .report-tab:hover { color: var(--text); background: var(--surface-2); }
 .report-tab.active { color: var(--accent); background: transparent; border-bottom-color: var(--accent); }
-.report-article { max-width: 940px; padding: 16px 15px; margin: 0 auto; }
+.report-article { max-width: 860px; padding: 20px 18px 24px; margin: 0 auto; }
 .report-summary-head {
   display: flex;
   flex-wrap: wrap;
@@ -626,6 +854,7 @@ textarea { min-height: 68px; resize: vertical; }
 .markdown h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .markdown h3 { font-size: 16px; }
 .markdown h4 { font-size: 14px; color: var(--muted); }
+.report-article > h2:first-child { margin-top: 0; }
 .markdown p { margin: 9px 0; }
 .markdown ul, .markdown ol { margin: 9px 0 9px 20px; padding: 0; }
 .markdown li { margin: 3px 0; }
@@ -635,6 +864,8 @@ textarea { min-height: 68px; resize: vertical; }
 .markdown th, .markdown td { border: 1px solid var(--line); padding: 8px 11px; text-align: left; vertical-align: top; }
 .markdown th { background: var(--surface-2); font-weight: 600; }
 .markdown td { font-variant-numeric: tabular-nums; }
+.markdown th:first-child, .markdown td:first-child { width: 54%; }
+.markdown tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 58%, transparent); }
 .markdown code {
   border-radius: 4px;
   padding: 1px 5px;
@@ -653,86 +884,151 @@ textarea { min-height: 68px; resize: vertical; }
 
 .reports-grid { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: start; }
 .history-panel { position: sticky; top: 82px; }
-.history-filter { display: grid; gap: 8px; padding: 12px 15px; border-bottom: 1px solid var(--line); }
-.history-filter .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.history-filter { display: grid; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.history-filter input { min-height: 36px; background: var(--bg); }
+.history-filter .filter-chips {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
 .filter-chip {
   width: auto;
-  min-height: 30px;
-  padding: 0 12px;
+  min-height: 28px;
+  padding: 0 11px;
   font-size: 12px;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
+  border: 0;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
 }
-.filter-chip.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.history-list { display: grid; gap: 8px; padding: 12px; max-height: calc(100dvh - 260px); overflow: auto; }
+.filter-chip:hover { background: var(--surface-2); }
+.filter-chip.active { background: var(--accent-soft); color: var(--accent); }
+.history-list { display: grid; gap: 6px; padding: 8px; max-height: calc(100dvh - 246px); overflow: auto; }
 .history-item {
   position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
   overflow: hidden;
   transition: border-color .16s ease, background .16s ease;
 }
-.history-item:hover { border-color: var(--accent); }
-.history-item.active { border-color: var(--accent); background: var(--accent-soft); }
-.history-item.active::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+.history-item:hover { border-color: var(--faint); }
+.history-item.active {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 38%, var(--surface-2));
+}
+.history-item.active::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
 .history-open {
-  flex: 1;
+  width: 100%;
   display: grid;
-  gap: 5px;
+  gap: 7px;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--text);
   text-align: left;
-  padding: 11px 13px;
-  min-height: 68px;
+  padding: 10px 48px 10px 13px;
+  min-height: 66px;
   cursor: pointer;
 }
 .history-open:hover { background: transparent; }
-.history-open .ho-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.history-open strong { font-size: 13px; font-weight: 650; }
-.history-open .ho-date { color: var(--muted); font-size: 11px; font-family: var(--mono); }
-.history-open .ho-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-.history-open small { color: var(--faint); font-size: 11px; font-family: var(--mono); }
+.history-open .ho-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.history-open strong { min-width: 0; font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-open .ho-code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.history-open .decision-badge { flex: none; margin-left: auto; padding: 2px 8px; font-size: 11px; }
+.history-open .ho-meta { display: flex; align-items: center; gap: 7px; color: var(--faint); font-size: 11px; }
+.history-open .ho-meta span + span::before { content: "·"; margin-right: 7px; color: var(--line); }
+.history-open time { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .history-delete {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   width: auto;
-  min-height: 100%;
-  padding: 0 12px;
-  font-size: 12px;
-  color: var(--danger);
+  min-height: 28px;
+  padding: 0 7px;
+  font-size: 11px;
+  color: var(--faint);
   background: transparent;
-  border: 0;
-  border-left: 1px solid var(--line);
-  opacity: 0;
-  transition: opacity .16s ease;
+  border: 1px solid transparent;
+  opacity: .65;
+  transition: opacity .16s ease, color .16s ease, background .16s ease;
   cursor: pointer;
 }
-.history-item:hover .history-delete, .history-item.active .history-delete { opacity: 1; }
+.history-item:hover .history-delete, .history-delete:focus-visible { opacity: 1; }
 .history-delete:hover { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+.history-refresh { width: 32px; min-height: 32px; font-size: 18px; }
 
-.admin-session-bar {
-  grid-column: 1 / -1;
+.admin-commandbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 13px 16px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--surface);
+  background: var(--surface-2);
 }
-.admin-session-bar .sess-info { display: flex; align-items: center; gap: 12px; }
-.admin-session-bar .helper-text { margin: 0; }
-.admin-forms { display: grid; gap: 16px; }
-.admin-form { display: grid; gap: 0; }
-.admin-table-panel { min-width: 0; }
-.admin-table-panel h4 { margin: 16px 15px 8px; font-size: 13px; color: var(--muted); }
+.admin-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.admin-tab {
+  width: auto;
+  min-height: 30px;
+  padding: 0 13px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-tab:hover { background: var(--surface-2); color: var(--text); }
+.admin-tab.active { background: var(--accent-soft); color: var(--accent); }
+.admin-session-inline { display: flex; align-items: center; gap: 8px; }
+.admin-pane {
+  display: none;
+  grid-template-columns: minmax(0, 1fr) minmax(330px, 390px);
+  gap: 16px;
+  align-items: start;
+}
+.admin-pane.active { display: grid; }
+.admin-list-panel, .admin-editor-panel { min-width: 0; }
+.admin-editor-panel { position: sticky; top: 78px; }
+.admin-header-actions { display: flex; align-items: center; gap: 7px; }
+.admin-count { color: var(--faint); font-size: 11px; }
+.admin-editor-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+.admin-field { min-width: 0; }
+.admin-field.full { grid-column: 1 / -1; }
+.admin-field label { margin: 0 0 6px; }
+.admin-field .helper-text { margin: 6px 0 0; }
+.admin-editor-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+.admin-editor-actions button { width: auto; }
+.data-table tbody tr.selectable { cursor: pointer; }
+.data-table tbody tr.selected { background: color-mix(in srgb, var(--accent-soft) 42%, transparent); }
+.data-table tbody tr.selected td:first-child { box-shadow: inset 2px 0 var(--accent); }
+.admin-model-table { min-width: 760px; }
+.admin-whitelist-table { min-width: 620px; }
+.admin-empty-note { color: var(--faint); font-size: 11px; }
 
 .modal-backdrop {
   position: fixed;
@@ -757,37 +1053,69 @@ textarea { min-height: 68px; resize: vertical; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .modal-header h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .modal-body { display: grid; gap: 10px; padding: 16px; }
+.modal-body label { margin: 0 0 6px; }
+.modal-identity-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; color: var(--muted); font-size: 12px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.modal-actions button { width: auto; }
 
 .theme-toggle { position: relative; }
 .theme-toggle .ico-sun { display: none; }
 [data-theme="light"] .theme-toggle .ico-sun { display: inline; }
 [data-theme="light"] .theme-toggle .ico-moon { display: none; }
 
+@media (max-width: 1400px) {
+  .admin-pane { grid-template-columns: 1fr; }
+  .admin-editor-panel { position: static; }
+}
 @media (max-width: 1200px) {
-  .analysis-grid { grid-template-columns: 280px minmax(0, 1fr); }
-  .analysis-side { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+  .analysis-launchbar { grid-template-columns: minmax(180px, .9fr) 150px minmax(360px, 1.7fr) 108px; }
 }
 @media (max-width: 1024px) {
   .admin-grid, .reports-grid { grid-template-columns: 1fr; }
-  .form-panel, .history-panel { position: static; }
+  .admin-pane { grid-template-columns: 1fr; }
+  .admin-editor-panel { position: static; }
+  .history-panel { position: static; }
+  .analysis-launchbar { grid-template-columns: minmax(0, 1fr) 145px 108px; }
+  .analysis-launchbar .launch-field:first-child { grid-column: 1; }
+  .analysis-launchbar .launch-field:nth-child(2) { grid-column: 2; }
+  .launch-modules { grid-column: 1 / 3; }
+  .launch-action { grid-column: 3; }
 }
 @media (max-width: 900px) {
   .analysis-grid { grid-template-columns: 1fr; }
-  .analysis-side { grid-template-columns: 1fr; }
-  .form-panel { position: static; }
+  .timeline-panel { position: static; }
+  .timeline { max-height: 420px; }
 }
 @media (max-width: 860px) {
   .app-shell { grid-template-columns: 1fr; }
-  .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .report-tabs { position: static; }
+  .sidebar { position: static; height: auto; overflow: visible; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 12px; border-right: 0; border-bottom: 1px solid var(--line); }
   .brand { flex: 1; }
   .nav-list { grid-auto-flow: column; }
-  .identity-card { display: none; }
+  .identity-card { width: 100%; margin-top: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .identity-head { min-width: 0; grid-column: 2; grid-row: 1; }
+  .identity-head h2 { display: none; }
+  .identity-account { min-width: 0; grid-column: 1; grid-row: 1; }
   .topbar { flex-wrap: wrap; }
   .ticker-bar.show { order: 3; width: 100%; }
 }
 @media (max-width: 560px) {
   .workspace { padding: 14px; }
-  .module-fieldset, .inline-form { grid-template-columns: 1fr; }
+  .analysis-launchbar { grid-template-columns: 1fr; }
+  .analysis-launchbar .launch-field:first-child,
+  .analysis-launchbar .launch-field:nth-child(2),
+  .launch-modules, .launch-action { grid-column: 1; }
+  .launch-modules .module-fieldset { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .launch-modules .check-option { width: 100%; }
+  .admin-commandbar { align-items: stretch; flex-direction: column; }
+  .admin-session-inline { justify-content: space-between; }
+  .admin-editor-form { grid-template-columns: 1fr; }
+  .admin-field.full { grid-column: 1; }
+  .admin-editor-actions { grid-column: 1; }
+  .inline-form { grid-template-columns: 1fr; }
+  .launch-action { width: 100%; }
+  .flow-summary { gap: 7px; }
+  .flow-current { max-width: 152px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-list { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
   .topbar-actions .secondary-button span { display: none; }
 }
@@ -818,29 +1146,27 @@ textarea { min-height: 68px; resize: vertical; }
       </nav>
 
       <section class="identity-card">
-        <h2>访问身份</h2>
-        <div class="identity-summary">管理员模式：本地开发已授权</div>
-        <label for="identity-email">邮箱</label>
-        <div class="inline-form">
-          <input id="identity-email" type="email" value="analyst@example.com">
-          <button class="secondary-button" type="button">保存</button>
+        <div class="identity-head">
+          <h2>本地访问身份</h2>
+          <span class="dot-badge active">白名单已匹配</span>
         </div>
-        <p class="helper-text">本地开发管理员登录后无需填写；普通用户和 CloudBase 部署可由登录态自动带入。</p>
+        <div class="identity-account">
+          <span class="identity-email-value" id="identity-email-value" title="analyst@example.com">analyst@example.com</span>
+          <button class="secondary-button identity-edit" type="button" id="identity-edit">更改</button>
+        </div>
       </section>
     </aside>
 
     <div class="main-shell">
       <header class="topbar">
-        <div class="topbar-titles">
-          <p class="eyebrow" id="view-eyebrow">多 Agent 分析</p>
-          <h2 id="view-title">个股分析</h2>
-        </div>
+        <div class="topbar-titles"><h2 id="view-title">个股分析</h2></div>
         <div class="ticker-bar show" id="ticker-bar">
           <span class="tk-code">002558.SZ</span>
           <span class="tk-name">巨人网络</span>
           <span class="tk-price">29.56</span>
           <span class="tk-change up">▲ +2.31%</span>
         </div>
+        <span class="topbar-context" id="topbar-context" hidden></span>
         <div class="topbar-spacer"></div>
         <div class="topbar-actions">
           <span class="state-pill done" id="global-run-state">分析完成</span>
@@ -848,7 +1174,6 @@ textarea { min-height: 68px; resize: vertical; }
             <span class="ico-moon" aria-hidden="true">☾</span>
             <span class="ico-sun" aria-hidden="true">☀</span>
           </button>
-          <button class="secondary-button" type="button"><span>后台</span></button>
         </div>
       </header>
 
@@ -856,31 +1181,94 @@ textarea { min-height: 68px; resize: vertical; }
 
         <!-- ============================ 个股分析 ============================ -->
         <section class="view active" id="view-analysis">
-          <div class="workspace-grid analysis-grid">
-            <section class="panel form-panel">
-              <div class="panel-header"><h3>分析参数</h3></div>
-              <div class="panel-body">
+          <div class="analysis-layout">
+            <section class="analysis-launchbar" aria-label="分析参数">
+              <div class="launch-field">
                 <label for="ticker">股票代码</label>
-                <div class="combo">
+                <div class="combo ticker-combo">
                   <input id="ticker" value="002558.SZ" autocomplete="off" placeholder="输入代码或名称，如 600519 / 茅台">
+                  <span class="ticker-name-chip" aria-hidden="true">巨人网络</span>
                 </div>
+              </div>
+              <div class="launch-field">
                 <label for="trade-date">分析日期</label>
                 <input id="trade-date" type="date" value="2026-07-11">
-                <fieldset class="module-fieldset">
-                  <legend>分析模块</legend>
+              </div>
+              <div class="launch-modules">
+                <span class="launch-label">分析模块</span>
+                <div class="module-fieldset" role="group" aria-label="分析模块">
                   <label class="check-option"><input type="checkbox" checked>市场</label>
                   <label class="check-option"><input type="checkbox" checked>新闻</label>
                   <label class="check-option"><input type="checkbox" checked>基本面</label>
                   <label class="check-option"><input type="checkbox" checked>社交情绪</label>
-                </fieldset>
-                <button type="button">开始分析</button>
-                <div class="status-box ok">分析完成，已归档到报告中心</div>
+                </div>
+              </div>
+              <button class="launch-action" type="button">开始分析</button>
+            </section>
+
+            <section class="panel agent-flow-panel" aria-label="Agent 协作进度">
+              <div class="panel-header">
+                <h3>Agent 协作进度</h3>
+                <div class="flow-summary">
+                  <span class="flow-current">情绪分析师处理中</span>
+                  <span class="flow-count mono">4 / 7</span>
+                </div>
+              </div>
+              <div class="agent-flow-scroll">
+                <div class="agent-flow">
+                  <div class="flow-node done">
+                    <span class="flow-marker">✓</span>
+                    <strong class="flow-role">市场分析师</strong>
+                    <span class="flow-kind">价格 / 技术面</span>
+                    <span class="flow-status">已完成</span>
+                  </div>
+                  <div class="flow-node done">
+                    <span class="flow-marker">✓</span>
+                    <strong class="flow-role">新闻分析师</strong>
+                    <span class="flow-kind">资讯催化</span>
+                    <span class="flow-status">已完成</span>
+                  </div>
+                  <div class="flow-node done">
+                    <span class="flow-marker">✓</span>
+                    <strong class="flow-role">基本面分析师</strong>
+                    <span class="flow-kind">财务 / 估值</span>
+                    <span class="flow-status">已完成</span>
+                  </div>
+                  <div class="flow-node active">
+                    <span class="flow-marker">4</span>
+                    <strong class="flow-role">情绪分析师</strong>
+                    <span class="flow-kind">社交 / 舆情</span>
+                    <span class="flow-status">进行中</span>
+                  </div>
+                  <div class="flow-node pending">
+                    <span class="flow-marker">5</span>
+                    <strong class="flow-role">研究经理</strong>
+                    <span class="flow-kind">观点整合</span>
+                    <span class="flow-status">待处理</span>
+                  </div>
+                  <div class="flow-node pending">
+                    <span class="flow-marker">6</span>
+                    <strong class="flow-role">交易员</strong>
+                    <span class="flow-kind">交易计划</span>
+                    <span class="flow-status">待处理</span>
+                  </div>
+                  <div class="flow-node pending">
+                    <span class="flow-marker">7</span>
+                    <strong class="flow-role">组合经理</strong>
+                    <span class="flow-kind">最终决策</span>
+                    <span class="flow-status">待处理</span>
+                  </div>
+                </div>
               </div>
             </section>
 
+            <div class="workspace-grid analysis-grid">
             <section class="panel report-current-panel">
-              <div class="panel-header">
-                <h3>当前报告</h3>
+              <div class="report-toolbar">
+                <div class="report-identity">
+                  <div class="report-identity-main"><span class="report-code">002558.SZ</span><span class="report-name">巨人网络</span></div>
+                  <span class="report-meta">分析日 2026-07-11 · 最新交易日 2026-07-10 · 4 个分析模块</span>
+                </div>
                 <button class="secondary-button compact-button" type="button" data-goto="reports">历史报告</button>
               </div>
               <div class="report-viewer">
@@ -895,8 +1283,7 @@ textarea { min-height: 68px; resize: vertical; }
                 </div>
 
                 <article class="report-article markdown" data-panel="market">
-                  <h2>📊 002558.SZ（巨人网络）技术分析报告</h2>
-                  <p><strong>分析基准日期：</strong>2026年7月11日（基于最新交易日 2026-07-10 收盘数据）</p>
+                  <h2>技术分析报告</h2>
                   <h3>一、核心数据快照（已验证来源）</h3>
                   <table>
                     <thead><tr><th>指标</th><th>数值</th></tr></thead>
@@ -911,7 +1298,7 @@ textarea { min-height: 68px; resize: vertical; }
                       <tr><td>ATR(14)</td><td>1.75</td></tr>
                     </tbody>
                   </table>
-                  <blockquote>⚠️ 数据一致性说明：get_indicators 返回的 RSI(14) 在 2026-07-10 为 69.06，而 get_verified_market_snapshot 报告为 62.98。本报告以验证快照为基准来源（62.98）。</blockquote>
+                  <blockquote><strong>数据一致性说明：</strong>get_indicators 返回的 RSI(14) 在 2026-07-10 为 69.06，而 get_verified_market_snapshot 报告为 62.98。本报告以验证快照为基准来源（62.98）。</blockquote>
                   <h3>二、趋势研判</h3>
                   <p>短期均线上穿、MACD 金叉后柱状图走强，动能偏多；但 200 日均线（36.48）远在上方，构成中期压制，天量滞涨提示获利盘派发风险。</p>
                 </article>
@@ -938,22 +1325,6 @@ textarea { min-height: 68px; resize: vertical; }
             </section>
 
             <div class="analysis-side">
-              <section class="panel run-panel">
-                <div class="panel-header">
-                  <h3>Agent 团队</h3>
-                  <p id="current-agent">已结束</p>
-                </div>
-                <div class="pipeline">
-                  <div class="pipe-node done"><span class="pipe-dot"></span><div class="pipe-info"><strong>市场分析师</strong><span>价格/技术面</span></div><span class="pipe-status">已完成</span></div>
-                  <div class="pipe-node done"><span class="pipe-dot"></span><div class="pipe-info"><strong>新闻分析师</strong><span>资讯催化</span></div><span class="pipe-status">已完成</span></div>
-                  <div class="pipe-node done"><span class="pipe-dot"></span><div class="pipe-info"><strong>基本面分析师</strong><span>财务/估值</span></div><span class="pipe-status">已完成</span></div>
-                  <div class="pipe-node active"><span class="pipe-dot"></span><div class="pipe-info"><strong>情绪分析师</strong><span>社交/舆情</span></div><span class="pipe-status">进行中</span></div>
-                  <div class="pipe-node pending"><span class="pipe-dot"></span><div class="pipe-info"><strong>研究经理</strong><span>多空观点整合</span></div><span class="pipe-status">待处理</span></div>
-                  <div class="pipe-node pending"><span class="pipe-dot"></span><div class="pipe-info"><strong>交易员</strong><span>交易计划</span></div><span class="pipe-status">待处理</span></div>
-                  <div class="pipe-node pending"><span class="pipe-dot"></span><div class="pipe-info"><strong>组合经理</strong><span>最终决策</span></div><span class="pipe-status">待处理</span></div>
-                </div>
-              </section>
-
               <section class="panel timeline-panel">
                 <div class="panel-header">
                   <h3>过程</h3>
@@ -961,19 +1332,19 @@ textarea { min-height: 68px; resize: vertical; }
                 </div>
                 <div class="timeline">
                   <article class="event-item active">
-                    <div class="event-title"><strong>Agent 输出</strong><span>AIMessage</span></div>
+                    <div class="event-title"><strong>Agent 输出</strong><div class="event-meta"><span>AIMessage</span><time datetime="2026-07-11T14:32:18+08:00">14:32:18</time></div></div>
                     <p>正在整合社交舆情数据，评估散户情绪与龙虎榜资金流向……</p>
                   </article>
                   <article class="event-item done">
-                    <div class="event-title"><strong>报告更新</strong><span>协作轨迹</span></div>
+                    <div class="event-title"><strong>报告更新</strong><div class="event-meta"><span>协作轨迹</span><time datetime="2026-07-11T14:32:15+08:00">14:32:15</time></div></div>
                     <p>基本面分析师 交付了 fundamentals_report</p>
                   </article>
                   <article class="event-item done">
-                    <div class="event-title"><strong>工具调用</strong><span>工具</span></div>
+                    <div class="event-title"><strong>工具调用</strong><div class="event-meta"><span>工具</span><time datetime="2026-07-11T14:32:10+08:00">14:32:10</time></div></div>
                     <p>get_financial_statements {"ticker": "002558.SZ", "period": "2026Q2"}</p>
                   </article>
                   <article class="event-item active">
-                    <div class="event-title"><strong>Agent 输出</strong><span>AIMessage</span></div>
+                    <div class="event-title"><strong>Agent 输出</strong><div class="event-meta"><span>AIMessage</span><time datetime="2026-07-11T14:31:56+08:00">14:31:56</time></div></div>
                     <p>2026 上半年净利润预增 157%–183%，主要由《超自然行动组》流水贡献……</p>
                     <details>
                       <summary>展开完整输出（385 字）</summary>
@@ -982,19 +1353,20 @@ textarea { min-height: 68px; resize: vertical; }
                     </details>
                   </article>
                   <article class="event-item done">
-                    <div class="event-title"><strong>报告更新</strong><span>协作轨迹</span></div>
+                    <div class="event-title"><strong>报告更新</strong><div class="event-meta"><span>协作轨迹</span><time datetime="2026-07-11T14:31:43+08:00">14:31:43</time></div></div>
                     <p>新闻分析师 交付了 news_report</p>
                   </article>
                   <article class="event-item error">
-                    <div class="event-title"><strong>工具重试</strong><span>系统</span></div>
+                    <div class="event-title"><strong>工具重试</strong><div class="event-meta"><span>系统</span><time datetime="2026-07-11T14:31:27+08:00">14:31:27</time></div></div>
                     <p>get_news 请求超时，已自动重试（1/3）</p>
                   </article>
                   <article class="event-item done">
-                    <div class="event-title"><strong>任务启动</strong><span>团队</span></div>
+                    <div class="event-title"><strong>任务启动</strong><div class="event-meta"><span>团队</span><time datetime="2026-07-11T14:30:02+08:00">14:30:02</time></div></div>
                     <p>002558.SZ 市场、新闻、基本面、社交情绪</p>
                   </article>
                 </div>
               </section>
+            </div>
             </div>
           </div>
         </section>
@@ -1005,7 +1377,7 @@ textarea { min-height: 68px; resize: vertical; }
             <section class="panel history-panel">
               <div class="panel-header">
                 <h3>历史报告</h3>
-                <button class="secondary-button compact-button" type="button">刷新</button>
+                <button class="icon-button history-refresh" type="button" aria-label="刷新历史报告" title="刷新">↻</button>
               </div>
               <div class="history-filter">
                 <input id="history-search" placeholder="搜索代码或名称" autocomplete="off">
@@ -1019,25 +1391,22 @@ textarea { min-height: 68px; resize: vertical; }
               <div class="history-list">
                 <div class="history-item active">
                   <button class="history-open">
-                    <div class="ho-top"><strong>002558.SZ · 巨人网络</strong><span class="ho-date">2026-07-11</span></div>
-                    <div class="ho-tags"><span class="decision-badge buy">买入</span></div>
-                    <small>2026-07-11 09:17</small>
+                    <div class="ho-top"><strong><span class="ho-code">002558.SZ</span> · 巨人网络</strong><span class="decision-badge buy">买入</span></div>
+                    <div class="ho-meta"><span>分析日 <time datetime="2026-07-11">2026-07-11</time></span><span><time datetime="2026-07-11T09:17:00+08:00">09:17</time> 归档</span></div>
                   </button>
                   <button class="history-delete" aria-label="删除报告">删除</button>
                 </div>
                 <div class="history-item">
                   <button class="history-open">
-                    <div class="ho-top"><strong>300750.SZ · 宁德时代</strong><span class="ho-date">2026-07-09</span></div>
-                    <div class="ho-tags"><span class="decision-badge sell">卖出</span></div>
-                    <small>2026-07-09 15:42</small>
+                    <div class="ho-top"><strong><span class="ho-code">300750.SZ</span> · 宁德时代</strong><span class="decision-badge sell">卖出</span></div>
+                    <div class="ho-meta"><span>分析日 <time datetime="2026-07-09">2026-07-09</time></span><span><time datetime="2026-07-09T15:42:00+08:00">15:42</time> 归档</span></div>
                   </button>
                   <button class="history-delete" aria-label="删除报告">删除</button>
                 </div>
                 <div class="history-item">
                   <button class="history-open">
-                    <div class="ho-top"><strong>600519.SH · 贵州茅台</strong><span class="ho-date">2026-07-08</span></div>
-                    <div class="ho-tags"><span class="decision-badge hold">持有</span></div>
-                    <small>2026-07-08 11:03</small>
+                    <div class="ho-top"><strong><span class="ho-code">600519.SH</span> · 贵州茅台</strong><span class="decision-badge hold">持有</span></div>
+                    <div class="ho-meta"><span>分析日 <time datetime="2026-07-08">2026-07-08</time></span><span><time datetime="2026-07-08T11:03:00+08:00">11:03</time> 归档</span></div>
                   </button>
                   <button class="history-delete" aria-label="删除报告">删除</button>
                 </div>
@@ -1045,21 +1414,29 @@ textarea { min-height: 68px; resize: vertical; }
             </section>
 
             <section class="panel report-detail-panel">
-              <div class="report-summary-head">
-                <span class="rh-title">002558.SZ · 巨人网络</span>
-                <span class="rh-meta">分析模块：市场、新闻、基本面、社交情绪</span>
-                <span class="decision-badge buy">买入</span>
+              <div class="report-toolbar">
+                <div class="report-identity">
+                  <div class="report-identity-main">
+                    <span class="report-code">002558.SZ</span>
+                    <span class="report-name">巨人网络</span>
+                    <span class="decision-badge buy">买入</span>
+                  </div>
+                  <span class="report-meta">分析日 2026-07-11 · 09:17 归档 · 4 个分析模块</span>
+                </div>
               </div>
               <div class="report-viewer">
                 <div class="report-tabs" role="tablist" data-report="history">
                   <button class="report-tab active" data-section="market">市场分析师</button>
                   <button class="report-tab" data-section="news">新闻分析师</button>
                   <button class="report-tab" data-section="fundamentals">基本面分析师</button>
+                  <button class="report-tab" data-section="sentiment">情绪分析师</button>
+                  <button class="report-tab" data-section="research">研究经理</button>
+                  <button class="report-tab" data-section="trader">交易员</button>
                   <button class="report-tab" data-section="decision">组合经理</button>
                 </div>
                 <article class="report-article markdown">
-                  <h2>📊 002558.SZ（巨人网络）技术分析报告</h2>
-                  <p>历史归档报告与「当前报告」使用同一套 Tab + Markdown 渲染组件。此处复用市场分析师页作为示例内容。</p>
+                  <h2>技术分析报告</h2>
+                  <p>短期动能偏多，但中期仍受长期均线压制，建议结合量价变化分批执行。</p>
                   <h3>核心结论</h3>
                   <ul>
                     <li>短期动能偏多，MACD 金叉后柱状图走强</li>
@@ -1083,98 +1460,117 @@ textarea { min-height: 68px; resize: vertical; }
         <!-- ============================ 后台管理 ============================ -->
         <section class="view" id="view-admin">
           <div class="workspace-grid admin-grid">
-            <div class="admin-session-bar">
-              <div class="sess-info">
-                <span class="state-pill done">已登录</span>
-                <p class="helper-text">退出后会清除本地管理员 token，不影响已保存的模型和白名单配置。</p>
+            <div class="admin-commandbar">
+              <div class="admin-tabs" role="tablist" aria-label="后台配置类型">
+                <button class="admin-tab active" type="button" data-admin-pane="models">模型管理</button>
+                <button class="admin-tab" type="button" data-admin-pane="whitelist">白名单</button>
               </div>
-              <button class="secondary-button" type="button">退出登录</button>
+              <div class="admin-session-inline">
+                <span class="state-pill done">管理员已登录</span>
+                <button class="secondary-button compact-button" type="button">退出</button>
+              </div>
             </div>
 
-            <div class="admin-forms">
-              <section class="panel">
-                <div class="panel-header"><h3>模型配置</h3></div>
-                <div class="panel-body admin-form">
-                  <label for="model-provider">供应商</label>
-                  <select id="model-provider">
-                    <option>DeepSeek</option>
-                    <option>OpenAI</option>
-                    <option>Anthropic</option>
-                    <option>Google Gemini</option>
-                    <option>通义千问（国内）</option>
-                    <option>智谱 GLM（国内）</option>
-                    <option>Kimi（月之暗面）</option>
-                    <option>OpenAI 兼容 / 自建</option>
-                  </select>
-                  <label for="model-name">显示名称</label>
-                  <input id="model-name" value="DeepSeek 默认">
-                  <label for="model-base-url">Base URL</label>
-                  <input id="model-base-url" value="https://api.deepseek.com" readonly>
-                  <p class="helper-text">官方供应商地址已自动填充，不可修改。</p>
-                  <label for="model-quick">快速模型</label>
-                  <input id="model-quick" value="deepseek-chat" placeholder="获取列表或手动输入模型 ID">
-                  <label for="model-deep">深度模型</label>
-                  <input id="model-deep" value="deepseek-reasoner" placeholder="可与快速模型相同">
-                  <label for="model-api-key">API Key</label>
-                  <input id="model-api-key" type="password" value="secret">
-                  <button class="secondary-button" type="button">获取模型列表</button>
-                  <button type="button">保存模型</button>
-                  <div class="status-box ok">模型配置已保存</div>
+            <div class="admin-pane active" data-admin-content="models">
+              <section class="panel admin-list-panel">
+                <div class="panel-header">
+                  <div><h3>模型配置</h3><span class="admin-count">2 个可用配置</span></div>
+                  <div class="admin-header-actions">
+                    <button class="icon-button history-refresh" type="button" aria-label="刷新模型配置" title="刷新">↻</button>
+                    <button class="secondary-button compact-button" type="button">新增模型</button>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table class="data-table admin-model-table">
+                    <thead><tr><th>名称</th><th>供应商</th><th>快速模型</th><th>深度模型</th><th>Key</th><th>状态</th></tr></thead>
+                    <tbody>
+                      <tr class="selectable selected">
+                        <td>DeepSeek 默认</td><td><span class="tag">deepseek</span></td>
+                        <td class="mono">deepseek-chat</td><td class="mono">deepseek-reasoner</td>
+                        <td class="mono">sk-••••••3f2a</td><td><span class="tag accent">默认</span></td>
+                      </tr>
+                      <tr class="selectable">
+                        <td>GPT 备用</td><td><span class="tag">openai</span></td>
+                        <td class="mono">gpt-4o-mini</td><td class="mono">gpt-4o</td>
+                        <td class="mono">sk-••••••9b71</td><td><span class="tag">可用</span></td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </section>
 
-              <section class="panel">
-                <div class="panel-header"><h3>白名单</h3></div>
-                <div class="panel-body admin-form">
-                  <label for="wl-email">邮箱</label>
-                  <input id="wl-email" value="trader@example.com">
-                  <label for="wl-uid">UID</label>
-                  <input id="wl-uid" value="u_10231">
-                  <label for="wl-status">状态</label>
-                  <select id="wl-status"><option>启用</option><option>待确认</option><option>禁用</option></select>
-                  <label for="wl-limit">每日次数</label>
-                  <input id="wl-limit" type="number" value="5">
-                  <label for="wl-note">备注</label>
-                  <textarea id="wl-note">核心分析师账号</textarea>
-                  <button type="button">保存白名单</button>
-                  <div class="status-box">等待保存</div>
+              <section class="panel admin-editor-panel">
+                <div class="panel-header"><h3>编辑模型</h3><span class="tag accent">默认配置</span></div>
+                <div class="admin-editor-form">
+                  <div class="admin-field">
+                    <label for="model-provider">供应商</label>
+                    <select id="model-provider">
+                      <option>DeepSeek</option><option>OpenAI</option><option>Anthropic</option><option>Google Gemini</option>
+                      <option>通义千问（国内）</option><option>智谱 GLM（国内）</option><option>Kimi（月之暗面）</option><option>OpenAI 兼容 / 自建</option>
+                    </select>
+                  </div>
+                  <div class="admin-field">
+                    <label for="model-name">显示名称</label>
+                    <input id="model-name" value="DeepSeek 默认">
+                  </div>
+                  <div class="admin-field full">
+                    <label for="model-base-url">Base URL</label>
+                    <input id="model-base-url" value="https://api.deepseek.com" readonly>
+                    <p class="helper-text">官方地址由供应商预设自动填充。</p>
+                  </div>
+                  <div class="admin-field">
+                    <label for="model-quick">快速模型</label>
+                    <input id="model-quick" value="deepseek-chat">
+                  </div>
+                  <div class="admin-field">
+                    <label for="model-deep">深度模型</label>
+                    <input id="model-deep" value="deepseek-reasoner">
+                  </div>
+                  <div class="admin-field full">
+                    <label for="model-api-key">API Key</label>
+                    <input id="model-api-key" type="password" value="secret">
+                  </div>
+                  <div class="admin-editor-actions">
+                    <button class="secondary-button" type="button">获取模型列表</button>
+                    <button type="button">保存修改</button>
+                  </div>
                 </div>
               </section>
             </div>
 
-            <section class="panel admin-table-panel">
-              <div class="panel-header">
-                <h3>当前配置</h3>
-                <button class="secondary-button compact-button" type="button">刷新</button>
-              </div>
-              <div class="table-wrap">
-                <h4>模型</h4>
-                <table class="data-table">
-                  <thead><tr><th>名称</th><th>供应商</th><th>快速模型</th><th>深度模型</th><th>Key</th><th>状态</th></tr></thead>
-                  <tbody>
-                    <tr>
-                      <td>DeepSeek 默认</td><td><span class="tag">deepseek</span></td>
-                      <td class="mono">deepseek-chat</td><td class="mono">deepseek-reasoner</td>
-                      <td class="mono">sk-••••••3f2a</td><td><span class="tag accent">默认</span></td>
-                    </tr>
-                    <tr>
-                      <td>GPT 备用</td><td><span class="tag">openai</span></td>
-                      <td class="mono">gpt-4o-mini</td><td class="mono">gpt-4o</td>
-                      <td class="mono">sk-••••••9b71</td><td><span class="tag">可用</span></td>
-                    </tr>
-                  </tbody>
-                </table>
-                <h4>白名单</h4>
-                <table class="data-table">
-                  <thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead>
-                  <tbody>
-                    <tr><td>trader@example.com</td><td class="mono">u_10231</td><td><span class="dot-badge active">启用</span></td><td class="num">5</td><td>核心分析师账号</td></tr>
-                    <tr><td>guest@example.com</td><td class="mono">u_10884</td><td><span class="dot-badge pending">待确认</span></td><td class="num">2</td><td>试用申请中</td></tr>
-                    <tr><td>spam@example.com</td><td class="mono">u_09117</td><td><span class="dot-badge blocked">禁用</span></td><td class="num">0</td><td>滥用已封禁</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </section>
+            <div class="admin-pane" data-admin-content="whitelist">
+              <section class="panel admin-list-panel">
+                <div class="panel-header">
+                  <div><h3>白名单用户</h3><span class="admin-count">2 个启用 · 1 个待确认</span></div>
+                  <div class="admin-header-actions">
+                    <button class="icon-button history-refresh" type="button" aria-label="刷新白名单" title="刷新">↻</button>
+                    <button class="secondary-button compact-button" type="button">新增用户</button>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table class="data-table admin-whitelist-table">
+                    <thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead>
+                    <tbody>
+                      <tr class="selectable selected"><td>trader@example.com</td><td class="mono">u_10231</td><td><span class="dot-badge active">启用</span></td><td class="num">5</td><td>核心分析师账号</td></tr>
+                      <tr class="selectable"><td>guest@example.com</td><td class="mono">u_10884</td><td><span class="dot-badge pending">待确认</span></td><td class="num">2</td><td>试用申请中</td></tr>
+                      <tr class="selectable"><td>spam@example.com</td><td class="mono">u_09117</td><td><span class="dot-badge blocked">禁用</span></td><td class="num">0</td><td>滥用已封禁</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="panel admin-editor-panel">
+                <div class="panel-header"><h3>编辑白名单</h3><span class="dot-badge active">启用</span></div>
+                <div class="admin-editor-form">
+                  <div class="admin-field full"><label for="wl-email">邮箱</label><input id="wl-email" value="trader@example.com"></div>
+                  <div class="admin-field"><label for="wl-uid">UID</label><input id="wl-uid" value="u_10231"></div>
+                  <div class="admin-field"><label for="wl-status">状态</label><select id="wl-status"><option>启用</option><option>待确认</option><option>禁用</option></select></div>
+                  <div class="admin-field"><label for="wl-limit">每日次数</label><input id="wl-limit" type="number" value="5"></div>
+                  <div class="admin-field full"><label for="wl-note">备注</label><textarea id="wl-note">核心分析师账号</textarea></div>
+                  <div class="admin-editor-actions"><button class="secondary-button" type="button">停用账号</button><button type="button">保存修改</button></div>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
 
@@ -1182,27 +1578,91 @@ textarea { min-height: 68px; resize: vertical; }
     </div>
   </div>
 
+  <div class="modal-backdrop" id="identity-modal" hidden>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="identity-modal-title">
+      <div class="modal-header">
+        <h2 id="identity-modal-title">更改本地访问身份</h2>
+        <button class="icon-button" type="button" id="identity-modal-close" aria-label="关闭" title="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <label for="identity-email">白名单邮箱</label>
+          <input id="identity-email" type="email" value="analyst@example.com" autocomplete="email">
+        </div>
+        <div class="modal-identity-status">
+          <span>当前匹配状态</span>
+          <span class="dot-badge active">已在白名单</span>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" id="identity-modal-cancel">取消</button>
+          <button type="button" id="identity-modal-save">保存身份</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <script>
     // 极简交互：视图切换 / 主题切换 / 报告 Tab（仅供 demo 浏览，无业务逻辑）
     const VIEW_META = {
-      analysis: { title: '个股分析', eyebrow: '多 Agent 分析' },
-      reports: { title: '报告中心', eyebrow: 'Markdown 报告' },
-      admin: { title: '后台管理', eyebrow: '模型与白名单' }
+      analysis: { title: '个股分析', context: '' },
+      reports: { title: '报告中心', context: '当前用户 · 12 份报告' },
+      admin: { title: '后台管理', context: '本地开发' }
     };
     function showView(view) {
       document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
       document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
       const meta = VIEW_META[view] || VIEW_META.analysis;
       document.getElementById('view-title').textContent = meta.title;
-      document.getElementById('view-eyebrow').textContent = meta.eyebrow;
+      const context = document.getElementById('topbar-context');
+      context.textContent = meta.context;
+      context.hidden = !meta.context;
+      document.getElementById('ticker-bar').classList.toggle('show', view === 'analysis');
+      document.getElementById('global-run-state').hidden = view !== 'analysis';
     }
     document.querySelectorAll('.nav-item').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
     document.querySelectorAll('[data-goto]').forEach(b => b.addEventListener('click', () => showView(b.dataset.goto)));
+    const initialView = new URLSearchParams(window.location.search).get('view');
+    if (initialView && VIEW_META[initialView]) showView(initialView);
+
+    function showAdminPane(pane) {
+      document.querySelectorAll('.admin-tab').forEach(item => item.classList.toggle('active', item.dataset.adminPane === pane));
+      document.querySelectorAll('[data-admin-content]').forEach(item => item.classList.toggle('active', item.dataset.adminContent === pane));
+    }
+    document.querySelectorAll('.admin-tab').forEach(tab => tab.addEventListener('click', () => showAdminPane(tab.dataset.adminPane)));
+    const initialAdminPane = new URLSearchParams(window.location.search).get('adminPane');
+    if (initialAdminPane === 'models' || initialAdminPane === 'whitelist') showAdminPane(initialAdminPane);
 
     document.getElementById('theme-toggle').addEventListener('click', () => {
       const html = document.documentElement;
       html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
     });
+
+    const identityModal = document.getElementById('identity-modal');
+    const identityInput = document.getElementById('identity-email');
+    const identityValue = document.getElementById('identity-email-value');
+    function setIdentityModal(open) {
+      identityModal.hidden = !open;
+      if (open) {
+        identityInput.value = identityValue.textContent;
+        requestAnimationFrame(() => identityInput.focus());
+      }
+    }
+    document.getElementById('identity-edit').addEventListener('click', () => setIdentityModal(true));
+    document.getElementById('identity-modal-close').addEventListener('click', () => setIdentityModal(false));
+    document.getElementById('identity-modal-cancel').addEventListener('click', () => setIdentityModal(false));
+    document.getElementById('identity-modal-save').addEventListener('click', () => {
+      if (!identityInput.reportValidity()) return;
+      identityValue.textContent = identityInput.value.trim();
+      identityValue.title = identityInput.value.trim();
+      setIdentityModal(false);
+    });
+    identityModal.addEventListener('click', event => {
+      if (event.target === identityModal) setIdentityModal(false);
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !identityModal.hidden) setIdentityModal(false);
+    });
+    if (new URLSearchParams(window.location.search).get('identity') === 'edit') setIdentityModal(true);
 
     // 当前报告 Tab：只有 market / decision 两页有示例内容，其余显示占位
     document.querySelectorAll('.report-tabs[data-report="live"] .report-tab').forEach(tab => {
@@ -1222,6 +1682,18 @@ textarea { min-height: 68px; resize: vertical; }
         chip.parentElement.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c === chip));
       });
     });
+
+    // 窄屏默认聚焦当前 Agent，仍可横向回看完整协作链。
+    function focusCurrentAgent() {
+      const scroller = document.querySelector('.agent-flow-scroll');
+      const current = scroller?.querySelector('.flow-node.active');
+      if (!scroller || !current) return;
+      scroller.scrollLeft = scroller.scrollWidth > scroller.clientWidth
+        ? current.offsetLeft - (scroller.clientWidth - current.offsetWidth) / 2
+        : 0;
+    }
+    requestAnimationFrame(focusCurrentAgent);
+    window.addEventListener('resize', focusCurrentAgent);
   </script>
 </body>
 </html>

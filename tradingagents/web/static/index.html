@@ -23,28 +23,28 @@
       <nav class="nav-list" id="primary-nav">
         <button class="nav-item active" type="button" data-view="analysis">个股分析</button>
         <button class="nav-item" type="button" data-view="reports">报告中心</button>
-        <button class="nav-item nav-admin" type="button" data-view="admin" hidden>后台管理</button>
+        <button class="nav-item nav-admin" type="button" data-view="admin">后台管理</button>
       </nav>
 
       <section class="identity-card" aria-labelledby="identity-title">
-        <h2 id="identity-title">访问身份</h2>
-        <div class="identity-summary" id="identity-summary">未设置访问邮箱</div>
-        <label for="identity-email">邮箱</label>
-        <div class="inline-form">
-          <input id="identity-email" type="email" autocomplete="email">
-          <button class="secondary-button" type="button" id="save-identity">保存</button>
+        <div class="identity-head">
+          <h2 id="identity-title">本地访问身份</h2>
+          <span class="dot-badge pending" id="identity-state">未设置</span>
         </div>
-        <p class="helper-text">本地开发管理员登录后无需填写；普通用户和 CloudBase 部署可由登录态自动带入。</p>
+        <div class="identity-account">
+          <span class="identity-email-value" id="identity-summary">未设置邮箱</span>
+          <button class="secondary-button identity-edit" type="button" id="open-identity-modal">更改</button>
+        </div>
       </section>
     </aside>
 
     <div class="main-shell">
       <header class="topbar">
         <div class="topbar-titles">
-          <p class="eyebrow" id="view-eyebrow">多 Agent 分析</p>
           <h2 id="view-title">个股分析</h2>
         </div>
         <div class="ticker-bar" id="ticker-bar" aria-live="polite"></div>
+        <div class="topbar-context" id="topbar-context" hidden></div>
         <div class="topbar-spacer"></div>
         <div class="topbar-actions">
           <span class="state-pill" id="global-run-state">空闲</span>
@@ -52,22 +52,45 @@
             <span class="ico-moon" aria-hidden="true">☾</span>
             <span class="ico-sun" aria-hidden="true">☀</span>
           </button>
-          <button class="secondary-button" type="button" id="open-admin-login"><span>管理员</span></button>
         </div>
       </header>
 
       <main class="workspace">
-        <section class="view active" id="view-analysis" data-title="个股分析" data-eyebrow="多 Agent 分析">
+        <section class="view active" id="view-analysis" data-title="个股分析">
           <div id="analysis-root"></div>
         </section>
-        <section class="view" id="view-reports" data-title="报告中心" data-eyebrow="Markdown 报告">
+        <section class="view" id="view-reports" data-title="报告中心">
           <div id="reports-root"></div>
         </section>
-        <section class="view" id="view-admin" data-title="后台管理" data-eyebrow="模型与白名单">
+        <section class="view" id="view-admin" data-title="后台管理">
           <div id="admin-root"></div>
         </section>
       </main>
     </div>
+  </div>
+
+  <div class="modal-backdrop" id="identity-modal" hidden>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="identity-modal-title">
+      <div class="modal-header">
+        <h2 id="identity-modal-title">更改本地访问身份</h2>
+        <button class="icon-button" type="button" id="close-identity-modal" aria-label="关闭" title="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="helper-text">临时用于匹配邮箱白名单。接入正式登录后，将由登录态自动提供身份。</p>
+        <div>
+          <label for="identity-email">邮箱</label>
+          <input id="identity-email" type="email" autocomplete="email" placeholder="name@example.com">
+        </div>
+        <div class="modal-identity-status">
+          <span id="identity-modal-status">尚未保存</span>
+          <span class="dot-badge pending" id="identity-modal-state">待设置</span>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary-button" type="button" id="cancel-identity-modal">取消</button>
+          <button type="button" id="save-identity">保存身份</button>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="modal-backdrop" id="admin-modal" hidden>

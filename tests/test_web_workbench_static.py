@@ -51,15 +51,20 @@ def test_workbench_has_required_navigation_and_identity_targets():
     assert 'data-view="reports"' in html
     assert 'data-view="admin"' in html
     assert 'id="identity-email"' in html
+    assert 'id="identity-modal"' in html
+    assert 'id="open-identity-modal"' in html
     assert "function identityQuery()" in js
     assert "function adminHeaders()" in js
     assert "function refreshAdminStatus()" in js
     assert "status.session_valid" in js
     assert "persistAdminSession('')" in js
-    assert "本地开发管理员登录后无需填写" in html
-    assert "管理员模式：本地开发已授权" in js
+    assert "接入正式登录后，将由登录态自动提供身份" in html
+    assert "管理员模式下无需邮箱白名单" in js
     assert "function persistAdminSession(token)" in js
     assert "document.cookie = `ta_admin=" in js
+    assert "input.reportValidity()" in js
+    assert "params.get('identity') === 'edit'" in js
+    assert "event.key !== 'Escape'" in js
 
 
 def test_workbench_no_longer_exposes_sector_screening():
@@ -86,6 +91,11 @@ def test_workbench_js_contains_analysis_workspace_contract():
     assert "实时连接中断" not in js
     assert "run_started" in js
     assert "report_section_updated" in js
+    assert "function advancePipelineStage()" in js
+    assert "created_at: item.created_at" in js
+    assert "function formatEventTime(value)" in js
+    assert "function focusCurrentAgent()" in js
+    assert "requestAnimationFrame(focusCurrentAgent)" in js
 
 
 def test_workbench_js_contains_terminal_redesign_contract():
@@ -145,7 +155,7 @@ def test_workbench_js_contains_provider_preset_contract():
     js = (STATIC_DIR / "workbench.js").read_text()
 
     assert "PROVIDER_PRESETS" in js
-    assert "function applyProviderPreset()" in js
+    assert "function applyProviderPreset(clearModels = true)" in js
     assert "https://api.deepseek.com" in js
     assert "readOnly" in js
     assert "async function fetchModelCatalog()" in js
@@ -173,7 +183,13 @@ def test_workbench_js_contains_admin_workspace_contract():
     assert "/api/admin/model-configs" in js
     assert "api_key" in js
     assert "ta_admin_token" in js
-    assert "退出登录" in js
+    assert 'id="admin-logout"' in js
+    assert "function switchAdminPane(pane)" in js
+    assert "function selectModel(id)" in js
+    assert "function selectWhitelist(email)" in js
+    assert "config_id: state.selectedModelId" in js
+    assert "params.get('adminPane')" in js
+    assert "query.set('adminPane', state.adminPane)" in js
 
 
 def test_workbench_static_files_follow_accessibility_basics():

@@ -89,7 +89,12 @@
     historyActiveId: null,
     historyReport: null,
     historyActiveSection: '',
-    tickerSearchTimer: null
+    tickerSearchTimer: null,
+    adminPane: 'models',
+    adminModels: [],
+    adminWhitelist: [],
+    selectedModelId: null,
+    selectedWhitelistEmail: ''
   };
 
   // Pipeline order for the Agent team board (analysts first, then managers).
@@ -141,6 +146,7 @@
     `;
     bar.querySelector('.tk-code').textContent = code;
     bar.querySelector('.tk-name').textContent = name || '';
+    updateTopbarContext();
   }
 
   function qs(selector, root = document) {
@@ -153,10 +159,40 @@
   }
 
   function updateIdentitySummary() {
-    const summary = state.adminToken
-      ? '管理员模式：本地开发已授权'
-      : state.identityEmail || '普通访问：未设置邮箱';
+    const isAdmin = Boolean(state.adminToken);
+    const summary = isAdmin ? '本地管理员' : state.identityEmail || '未设置邮箱';
     setText('#identity-summary', summary);
+    const summaryNode = qs('#identity-summary');
+    if (summaryNode) summaryNode.title = summary;
+    const stateNodes = [qs('#identity-state'), qs('#identity-modal-state')].filter(Boolean);
+    stateNodes.forEach(node => {
+      node.className = `dot-badge ${isAdmin || state.identityEmail ? 'active' : 'pending'}`;
+      node.textContent = isAdmin ? '已授权' : state.identityEmail ? '已设置' : '未设置';
+    });
+    setText(
+      '#identity-modal-status',
+      isAdmin ? '管理员模式下无需邮箱白名单' : state.identityEmail ? `当前使用 ${state.identityEmail}` : '尚未保存访问邮箱'
+    );
+    updateTopbarContext();
+  }
+
+  function updateTopbarContext() {
+    const context = qs('#topbar-context');
+    const runState = qs('#global-run-state');
+    const ticker = qs('#ticker-bar');
+    if (!context || !runState || !ticker) return;
+
+    context.hidden = false;
+    runState.hidden = state.view !== 'analysis';
+    ticker.hidden = state.view !== 'analysis';
+    if (state.view === 'analysis') {
+      context.hidden = true;
+    } else if (state.view === 'reports') {
+      const owner = state.adminToken ? '管理员视图' : state.identityEmail || '当前用户';
+      context.textContent = `${owner} · ${state.history.length} 份报告`;
+    } else {
+      context.textContent = state.adminToken ? '本地开发 · 管理员已授权' : '需要管理员登录';
+    }
   }
 
   function todayChinaDate() {
@@ -218,14 +254,7 @@
   }
 
   function setAdminAvailable(available) {
-    document.querySelectorAll('.nav-admin').forEach(button => {
-      button.hidden = !available;
-    });
-    const adminEntry = qs('#open-admin-login');
-    if (adminEntry) {
-      adminEntry.textContent = available ? '后台' : '管理员';
-      adminEntry.setAttribute('aria-label', available ? '进入后台管理' : '管理员登录');
-    }
+    document.querySelectorAll('.nav-admin').forEach(button => { button.hidden = false; });
     updateIdentitySummary();
   }
 
@@ -253,10 +282,13 @@
     });
     const active = qs(`#view-${target}`);
     setText('#view-title', active?.dataset.title || '工作台');
-    setText('#view-eyebrow', active?.dataset.eyebrow || 'TradingAgents');
+    updateTopbarContext();
     if (target === 'admin') renderAdminWorkspace();
     if (target === 'reports') loadReportHistory();
-    history.replaceState(null, '', `?view=${encodeURIComponent(target)}`);
+    const query = new URLSearchParams();
+    query.set('view', target);
+    if (target === 'admin') query.set('adminPane', state.adminPane);
+    history.replaceState(null, '', `?${query.toString()}`);
   }
 
   function openAdminModal() {
@@ -276,6 +308,33 @@
   function closeAdminModal() {
     const modal = qs('#admin-modal');
     if (modal) modal.hidden = true;
+  }
+
+  function openIdentityModal() {
+    const modal = qs('#identity-modal');
+    const input = qs('#identity-email');
+    if (input) input.value = state.identityEmail;
+    if (modal) modal.hidden = false;
+    updateIdentitySummary();
+    setTimeout(() => input?.focus(), 0);
+  }
+
+  function closeIdentityModal() {
+    const modal = qs('#identity-modal');
+    if (modal) modal.hidden = true;
+  }
+
+  async function saveIdentity() {
+    const input = qs('#identity-email');
+    if (input && !input.reportValidity()) return;
+    const email = input?.value.trim() || '';
+    state.identityEmail = email;
+    if (email) localStorage.setItem('ta_identity_email', email);
+    else localStorage.removeItem('ta_identity_email');
+    updateIdentitySummary();
+    closeIdentityModal();
+    await restoreActiveRun();
+    if (state.view === 'reports') await loadReportHistory();
   }
 
   function renderAdminAuth() {
@@ -331,69 +390,84 @@
     const root = qs('#analysis-root');
     if (!root) return;
     root.innerHTML = `
-      <div class="workspace-grid analysis-grid">
-        <section class="panel form-panel">
-          <div class="panel-header">
-            <h3>分析参数</h3>
-          </div>
-          <div class="panel-body">
+      <div class="analysis-layout">
+        <section class="analysis-launchbar" aria-label="分析参数">
+          <div class="launch-field">
             <label for="ticker">股票代码</label>
-            <div class="combo" id="ticker-combo">
+            <div class="combo ticker-combo" id="ticker-combo">
               <input id="ticker" value="600519.SH" autocomplete="off" role="combobox"
                 aria-expanded="false" aria-autocomplete="list" aria-controls="ticker-suggest"
                 placeholder="输入代码或名称，如 600519 / 茅台">
+              <span class="ticker-name-chip" id="ticker-name-chip" aria-hidden="true" hidden></span>
               <div class="combo-menu" id="ticker-suggest" role="listbox" hidden></div>
             </div>
+          </div>
+          <div class="launch-field">
             <label for="trade-date">分析日期</label>
             <input id="trade-date" type="date">
-            <fieldset class="module-fieldset">
-              <legend>分析模块</legend>
+          </div>
+          <div class="launch-modules">
+            <span class="launch-label">分析模块</span>
+            <div class="module-fieldset" role="group" aria-label="分析模块">
               <label class="check-option"><input type="checkbox" name="analyst" value="market" checked>市场</label>
               <label class="check-option"><input type="checkbox" name="analyst" value="news" checked>新闻</label>
               <label class="check-option"><input type="checkbox" name="analyst" value="fundamentals" checked>基本面</label>
               <label class="check-option"><input type="checkbox" name="analyst" value="social">社交情绪</label>
-            </fieldset>
-            <button type="button" id="run-analysis">开始分析</button>
-            <div class="status-box" id="analysis-status">等待开始</div>
+            </div>
           </div>
+          <button class="launch-action" type="button" id="run-analysis">开始分析</button>
         </section>
+        <div class="analysis-notice" id="analysis-status" role="status" hidden></div>
 
-        <section class="panel report-current-panel">
+        <section class="panel agent-flow-panel" aria-label="Agent 协作进度">
           <div class="panel-header">
-            <h3>当前报告</h3>
-            <button class="secondary-button compact-button" type="button" data-open-reports>历史报告</button>
+            <h3>Agent 协作进度</h3>
+            <div class="flow-summary">
+              <span class="flow-current" id="current-agent">未开始</span>
+              <span class="flow-count mono" id="team-count">0 / 0</span>
+            </div>
           </div>
-          <div class="report-viewer" id="report-preview"><div class="empty-state">等待报告生成</div></div>
+          <div class="agent-flow-scroll"><div class="agent-flow" id="team-board"></div></div>
         </section>
 
-        <div class="analysis-side">
-          <section class="panel run-panel">
-            <div class="panel-header">
-              <h3>Agent 团队</h3>
-              <p id="current-agent">未开始</p>
+        <div class="workspace-grid analysis-grid">
+          <section class="panel report-current-panel">
+            <div class="report-toolbar" id="current-report-toolbar">
+              <div class="report-identity">
+                <div class="report-identity-main">
+                  <span class="report-code" id="current-report-code">等待分析</span>
+                  <span class="report-name" id="current-report-name"></span>
+                </div>
+                <span class="report-meta" id="current-report-meta">报告会在 Agent 交付后显示</span>
+              </div>
+              <button class="secondary-button compact-button" type="button" data-open-reports>历史报告</button>
             </div>
-            <div class="pipeline" id="team-board"></div>
+            <div class="report-viewer" id="report-preview"><div class="empty-state">等待报告生成</div></div>
           </section>
-          <section class="panel timeline-panel">
-            <div class="panel-header">
-              <h3>过程</h3>
-              <p><span class="event-count" id="event-count">0</span> 个事件</p>
-            </div>
-            <div class="timeline" id="log"><div class="empty-state">等待过程事件</div></div>
-          </section>
+
+          <div class="analysis-side">
+            <section class="panel timeline-panel">
+              <div class="panel-header">
+                <h3>过程</h3>
+                <p><span class="event-count" id="event-count">0</span> 个事件</p>
+              </div>
+              <div class="timeline" id="log"><div class="empty-state">等待过程事件</div></div>
+            </section>
+          </div>
         </div>
       </div>
     `;
     const dateInput = qs('#trade-date');
     if (dateInput && !dateInput.value) dateInput.value = todayChinaDate();
+    dateInput?.addEventListener('change', updateCurrentReportToolbar);
     qs('#run-analysis')?.addEventListener('click', startAnalysis);
     qs('[data-open-reports]', root)?.addEventListener('click', () => showView('reports'));
     setupTickerAutocomplete();
     resetTeamBoard(selectedAnalystList());
     renderReportPreview();
-    // Seed the topbar ticker bar from the current input value.
     const seed = qs('#ticker')?.value.trim();
     if (seed && !state.activeTicker.code) state.activeTicker = { code: seed, name: '' };
+    setAnalysisTicker(state.activeTicker.code || seed, state.activeTicker.name || '');
     updateTickerBar();
   }
 
@@ -405,6 +479,8 @@
 
     input.addEventListener('input', () => {
       const value = input.value.trim();
+      state.activeTicker = { code: value, name: '' };
+      updateTickerIdentity();
       if (state.tickerSearchTimer) clearTimeout(state.tickerSearchTimer);
       if (!value) {
         hideTickerSuggestions();
@@ -423,6 +499,12 @@
 
     document.addEventListener('click', event => {
       if (!qs('#ticker-combo')?.contains(event.target)) hideTickerSuggestions();
+    });
+    document.querySelectorAll('input[name="analyst"]').forEach(option => {
+      option.addEventListener('change', () => {
+        if (!state.activeRunId) resetTeamBoard(selectedAnalystList());
+        updateCurrentReportToolbar();
+      });
     });
   }
 
@@ -488,7 +570,28 @@
     const input = qs('#ticker');
     if (input) input.value = ticker;
     state.activeTicker = { code: ticker || '', name: name || '' };
+    updateTickerIdentity();
     updateTickerBar();
+  }
+
+  function updateTickerIdentity() {
+    const chip = qs('#ticker-name-chip');
+    if (chip) {
+      chip.textContent = state.activeTicker.name || '';
+      chip.hidden = !state.activeTicker.name;
+    }
+    updateCurrentReportToolbar();
+  }
+
+  function updateCurrentReportToolbar() {
+    setText('#current-report-code', state.activeTicker.code || '等待分析');
+    setText('#current-report-name', state.activeTicker.name || '');
+    const date = qs('#trade-date')?.value || state.currentRun?.trade_date || todayChinaDate();
+    const count = selectedAnalystList().length;
+    setText(
+      '#current-report-meta',
+      state.activeTicker.code ? `分析日 ${date} · ${count} 个分析模块` : '报告会在 Agent 交付后显示'
+    );
   }
 
   function resetTeamBoard(analysts) {
@@ -503,34 +606,64 @@
     const board = qs('#team-board');
     if (!board) return;
     board.textContent = '';
-    // Preserve pipeline order rather than object insertion order.
-    PIPELINE_ORDER.filter(key => state.roleStates[key]).forEach(key => {
+    const visibleRoles = PIPELINE_ORDER.filter(key => state.roleStates[key]);
+    const doneCount = visibleRoles.filter(key => state.roleStates[key] === 'done').length;
+    setText('#team-count', `${doneCount} / ${visibleRoles.length}`);
+    visibleRoles.forEach((key, index) => {
       const role = TEAM_ROLES[key];
       if (!role) return;
       const roleState = state.roleStates[key];
       const node = document.createElement('div');
-      node.className = `pipe-node ${roleState}`;
-      node.innerHTML = '<span class="pipe-dot" aria-hidden="true"></span>'
-        + '<div class="pipe-info"><strong></strong><span></span></div>'
-        + '<span class="pipe-status"></span>';
-      node.querySelector('strong').textContent = role.label;
-      node.querySelector('.pipe-info span').textContent = role.kind;
-      node.querySelector('.pipe-status').textContent =
+      node.className = `flow-node ${roleState}`;
+      node.innerHTML = '<span class="flow-marker" aria-hidden="true"></span>'
+        + '<strong class="flow-role"></strong><span class="flow-kind"></span>'
+        + '<span class="flow-status"></span>';
+      node.querySelector('.flow-marker').textContent = roleState === 'done' ? '✓' : String(index + 1);
+      node.querySelector('.flow-role').textContent = role.label;
+      node.querySelector('.flow-kind').textContent = role.kind.replaceAll('/', ' / ');
+      node.querySelector('.flow-status').textContent =
         roleState === 'active' ? '进行中' : roleState === 'done' ? '已完成' : '待处理';
       board.appendChild(node);
     });
+    const activeLabels = visibleRoles
+      .filter(key => state.roleStates[key] === 'active')
+      .map(key => TEAM_ROLES[key].label);
+    if (activeLabels.length) {
+      setText('#current-agent', activeLabels.length > 1 ? `${activeLabels.length} 位分析师并行处理中` : `${activeLabels[0]}处理中`);
+    } else if (visibleRoles.length && doneCount === visibleRoles.length) {
+      setText('#current-agent', '团队已结束');
+    }
+    requestAnimationFrame(focusCurrentAgent);
+  }
+
+  function focusCurrentAgent() {
+    const scroller = qs('.agent-flow-scroll');
+    const current = scroller?.querySelector('.flow-node.active');
+    if (!scroller || !current || scroller.scrollWidth <= scroller.clientWidth) return;
+    scroller.scrollLeft = Math.max(
+      0,
+      current.offsetLeft - (scroller.clientWidth - current.offsetWidth) / 2
+    );
   }
 
   function markRole(key, nextState) {
     if (!state.roleStates[key]) return;
-    if (nextState === 'active') {
-      Object.keys(state.roleStates).forEach(name => {
-        if (state.roleStates[name] === 'active') state.roleStates[name] = 'done';
-      });
-    }
     state.roleStates[key] = nextState;
-    setText('#current-agent', TEAM_ROLES[key]?.label || '团队协作');
+    advancePipelineStage();
     renderTeamBoard();
+  }
+
+  function advancePipelineStage() {
+    const analystKeys = Object.keys(state.roleStates).filter(key => !['research_manager', 'trader', 'portfolio_manager'].includes(key));
+    if (analystKeys.length && analystKeys.every(key => state.roleStates[key] === 'done')) {
+      if (state.roleStates.research_manager === 'pending') state.roleStates.research_manager = 'active';
+    }
+    if (state.roleStates.research_manager === 'done' && state.roleStates.trader === 'pending') {
+      state.roleStates.trader = 'active';
+    }
+    if (state.roleStates.trader === 'done' && state.roleStates.portfolio_manager === 'pending') {
+      state.roleStates.portfolio_manager = 'active';
+    }
   }
 
   function setRunState(text, mode) {
@@ -540,6 +673,7 @@
       pill.textContent = text;
       pill.className = `state-pill ${mode || ''}`.trim();
     }
+    updateTopbarContext();
   }
 
   function tickEvent() {
@@ -547,7 +681,15 @@
     setText('#event-count', String(state.eventTotal));
   }
 
-  function addCollapsibleLog(title, detail, meta = '', kind = '') {
+  function formatEventTime(value) {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(date);
+  }
+
+  function addCollapsibleLog(title, detail, meta = '', kind = '', createdAt = '') {
     tickEvent();
     const log = qs('#log');
     if (!log) return;
@@ -555,9 +697,11 @@
     const item = document.createElement('article');
     item.className = `event-item ${kind}`.trim();
     const safeDetail = String(detail || '');
-    item.innerHTML = '<div class="event-title"><strong></strong><span></span></div><p></p>';
+    item.innerHTML = '<div class="event-title"><strong></strong><div class="event-meta"><span></span><time></time></div></div><p></p>';
     item.querySelector('strong').textContent = title;
-    item.querySelector('span').textContent = meta;
+    item.querySelector('.event-meta span').textContent = meta;
+    item.querySelector('time').textContent = formatEventTime(createdAt);
+    if (createdAt) item.querySelector('time').dateTime = createdAt;
     item.querySelector('p').textContent =
       safeDetail.length > COLLAPSE_LIMIT ? `${safeDetail.slice(0, COLLAPSE_LIMIT)}...` : safeDetail;
     if (safeDetail.length > COLLAPSE_LIMIT) {
@@ -585,18 +729,26 @@
     renderReportPreview();
   }
 
+  function setAnalysisStatus(text, mode = '') {
+    const node = qs('#analysis-status');
+    if (!node) return;
+    node.textContent = text || '';
+    node.hidden = !text;
+    node.className = `analysis-notice ${mode}`.trim();
+  }
+
   async function startAnalysis() {
     resetRunView();
     const button = qs('#run-analysis');
     if (button) button.disabled = true;
     setRunState('连接中', 'running');
-    setText('#analysis-status', '连接中');
+    setAnalysisStatus('正在创建后台分析任务…', 'running');
     if (state.adminToken) {
       try {
         await refreshAdminStatus();
       } catch (err) {
         setRunState('会话同步失败', 'failed');
-        setText('#analysis-status', `管理员会话同步失败：${err.message}`);
+        setAnalysisStatus(`管理员会话同步失败：${err.message}`, 'error');
         if (button) button.disabled = false;
         return;
       }
@@ -621,7 +773,7 @@
         return;
       }
       setRunState('启动失败', 'failed');
-      setText('#analysis-status', `分析启动失败：${err.message}`);
+      setAnalysisStatus(`分析启动失败：${err.message}`, 'error');
       if (button) button.disabled = false;
     }
   }
@@ -641,7 +793,7 @@
       if (button) button.disabled = false;
       return null;
     } catch (err) {
-      if (err.status !== 401) setText('#analysis-status', `任务状态读取失败：${err.message}`);
+      if (err.status !== 401) setAnalysisStatus(`任务状态读取失败：${err.message}`, 'error');
       return null;
     }
   }
@@ -661,9 +813,10 @@
     document.querySelectorAll('input[name="analyst"]').forEach(input => {
       input.checked = (run.analysts || []).includes(input.value);
     });
+    updateCurrentReportToolbar();
     resetTeamBoard(run.analysts || []);
     setRunState(run.status === 'queued' ? '排队中' : '分析中', 'running');
-    setText('#analysis-status', run.status === 'queued' ? '任务已提交，等待执行' : '后台分析正在执行');
+    setAnalysisStatus(run.status === 'queued' ? '任务已提交，等待执行' : '后台任务正在执行，关闭页面不会中断', 'running');
     await loadPersistedRunEvents(run.id, 0);
     if (!state.streamDone && state.activeRunId === run.id) pollActiveRun(run.id);
   }
@@ -673,7 +826,9 @@
       headers: adminHeaders()
     });
     (result.items || []).forEach(item => {
-      handleAnalysisEvent(item.event, { ...(item.data || {}), seq: item.seq, run_id: runId });
+      handleAnalysisEvent(item.event, {
+        ...(item.data || {}), seq: item.seq, run_id: runId, created_at: item.created_at
+      });
     });
   }
 
@@ -704,12 +859,12 @@
         return;
       }
       setRunState(result.run.status === 'queued' ? '排队中' : '分析中', 'running');
-      setText('#analysis-status', result.run.status === 'queued'
+      setAnalysisStatus(result.run.status === 'queued'
         ? '任务已提交，等待执行'
-        : '后台分析正在执行，进度已同步');
+        : '后台任务正在执行，进度已同步', 'running');
       scheduleRunPoll(runId);
     } catch (err) {
-      setText('#analysis-status', `进度同步暂时失败，稍后重试：${err.message}`);
+      setAnalysisStatus(`实时同步暂时中断，后台任务仍在执行，正在重试：${err.message}`, 'warning');
       scheduleRunPoll(runId, 2000);
     }
   }
@@ -718,27 +873,30 @@
     if (Number(data.seq) > state.lastEventSeq) state.lastEventSeq = Number(data.seq);
     if (event === 'run_started') {
       resetTeamBoard(data.analysts || []);
+      (data.analysts || []).forEach(key => {
+        if (state.roleStates[key]) state.roleStates[key] = 'active';
+      });
+      renderTeamBoard();
       if (data.ticker) {
         state.activeTicker = { code: data.ticker, name: state.activeTicker.name };
         updateTickerBar();
       }
       setRunState('分析中', 'running');
-      setText('#current-agent', '团队启动');
-      setText('#analysis-status', `分析中：${data.ticker} / ${data.trade_date}`);
-      addCollapsibleLog('任务启动', `${data.ticker} ${(data.analysts || []).join('、')}`, '团队', 'active');
+      setAnalysisStatus(`后台分析中：${data.ticker} · ${data.trade_date}`, 'running');
+      addCollapsibleLog('任务启动', `${data.ticker} ${(data.analysts || []).join('、')}`, '团队', 'active', data.created_at);
     } else if (event === 'tool_called') {
       setRunState('分析中', 'running');
-      addCollapsibleLog('工具调用', `${data.tool} ${JSON.stringify(data.args)}`, '工具', 'active');
+      addCollapsibleLog('工具调用', `${data.tool} ${JSON.stringify(data.args)}`, '工具', 'active', data.created_at);
     } else if (event === 'agent_message') {
       setRunState('分析中', 'running');
-      addCollapsibleLog('Agent 输出', data.content, data.message_type || 'Agent', 'active');
+      addCollapsibleLog('Agent 输出', data.content, data.message_type || 'Agent', 'active', data.created_at);
     } else if (event === 'report_section_updated') {
       const roleKey = SECTION_TO_ROLE[data.section];
       if (roleKey) markRole(roleKey, 'done');
       state.reports[data.section] = data.content || '';
       if (!state.currentReportSection) state.currentReportSection = data.section;
       renderReportPreview();
-      addCollapsibleLog('报告更新', `${TEAM_ROLES[roleKey]?.label || data.section} 交付了 ${data.section}`, '协作轨迹', 'done');
+      addCollapsibleLog('报告更新', `${TEAM_ROLES[roleKey]?.label || data.section} 交付了 ${data.section}`, '协作轨迹', 'done', data.created_at);
     } else if (event === 'run_completed') {
       state.streamDone = true;
       state.activeRunId = '';
@@ -748,8 +906,8 @@
       renderTeamBoard();
       setRunState('分析完成', 'done');
       setText('#current-agent', '已结束');
-      setText('#analysis-status', '分析完成，已归档到报告中心');
-      addCollapsibleLog('完成', '最终状态已生成，团队分析已结束。', '系统', 'done');
+      setAnalysisStatus('分析完成，报告已归档到报告中心', 'success');
+      addCollapsibleLog('完成', '最终状态已生成，团队分析已结束。', '系统', 'done', data.created_at);
       const button = qs('#run-analysis');
       if (button) button.disabled = false;
       loadReportHistory();
@@ -761,8 +919,8 @@
       const detail = `${data.error_type || 'Error'}: ${data.message || '未知错误'}`;
       setRunState('分析失败', 'failed');
       setText('#current-agent', '已停止');
-      setText('#analysis-status', `分析失败：${detail}`);
-      addCollapsibleLog('错误', detail, '系统', 'error');
+      setAnalysisStatus(`分析失败：${detail}`, 'error');
+      addCollapsibleLog('错误', detail, '系统', 'error', data.created_at);
       const button = qs('#run-analysis');
       if (button) button.disabled = false;
     }
@@ -785,6 +943,7 @@
     text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
     text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
     return text;
   }
 
@@ -822,6 +981,20 @@
         const level = heading[1].length;
         output.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
         i += 1;
+        continue;
+      }
+      if (/^---+$/.test(trimmed)) {
+        output.push('<hr>');
+        i += 1;
+        continue;
+      }
+      if (/^>\s?/.test(trimmed)) {
+        const quote = [];
+        while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+          quote.push(lines[i].trim().replace(/^>\s?/, ''));
+          i += 1;
+        }
+        output.push(`<blockquote>${renderInline(quote.join(' '))}</blockquote>`);
         continue;
       }
       if (trimmed.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
@@ -950,6 +1123,11 @@
   function renderReportPreview() {
     const root = qs('#report-preview');
     if (!root) return;
+    updateCurrentReportToolbar();
+    const identity = qs('#current-report-toolbar .report-identity-main');
+    identity?.querySelector('.decision-badge')?.remove();
+    const finalDecision = state.reports.final_trade_decision;
+    if (identity && finalDecision) identity.insertAdjacentHTML('beforeend', decisionBadgeHtml(finalDecision));
     if (!Object.keys(state.reports).length) {
       root.innerHTML = '<div class="empty-state">等待报告生成</div>';
       return;
@@ -968,6 +1146,7 @@
     try {
       const data = await apiJson(withIdentity('/api/reports'), { headers: adminHeaders() });
       state.history = data.items || [];
+      updateTopbarContext();
       if (state.historyActiveId && !state.history.some(item => item.id === state.historyActiveId)) {
         state.historyActiveId = null;
         state.historyReport = null;
@@ -996,7 +1175,7 @@
         <section class="panel history-panel">
           <div class="panel-header">
             <h3>历史报告</h3>
-            <button class="secondary-button compact-button" type="button" id="reload-history">刷新</button>
+            <button class="icon-button history-refresh" type="button" id="reload-history" aria-label="刷新历史报告" title="刷新">↻</button>
           </div>
           <div class="history-filter">
             <input id="history-search" placeholder="搜索代码或名称" autocomplete="off">
@@ -1010,9 +1189,14 @@
           <div class="history-list" id="history-list"></div>
         </section>
         <section class="panel report-detail-panel">
-          <div class="report-summary-head" id="history-summary">
-            <span class="rh-title" id="history-detail-title">报告详情</span>
-            <span class="rh-meta" id="history-detail-meta">从左侧选择一份历史报告</span>
+          <div class="report-toolbar" id="history-summary">
+            <div class="report-identity">
+              <div class="report-identity-main">
+                <span class="report-code" id="history-detail-title">报告详情</span>
+                <span class="report-name" id="history-detail-name"></span>
+              </div>
+              <span class="report-meta" id="history-detail-meta">从左侧选择一份历史报告</span>
+            </div>
           </div>
           <div class="report-viewer" id="history-detail"><div class="empty-state">选择左侧报告后查看完整内容</div></div>
         </section>
@@ -1073,26 +1257,21 @@
       const open = document.createElement('button');
       open.type = 'button';
       open.className = 'history-open';
-      open.innerHTML = '<div class="ho-top"><strong></strong><span class="ho-date"></span></div>'
-        + '<div class="ho-tags"></div>'
-        + '<small></small>';
-      open.querySelector('strong').textContent = historyLabel(item);
-      open.querySelector('.ho-date').textContent = item.trade_date || (item.created_at || '').slice(0, 10);
-      const tags = open.querySelector('.ho-tags');
+      open.innerHTML = '<div class="ho-top"><strong><span class="ho-code"></span><span class="ho-name"></span></strong></div>'
+        + '<div class="ho-meta"><span class="ho-trade-date"></span><span class="ho-created"></span><span class="ho-owner"></span></div>';
+      open.querySelector('.ho-code').textContent = item.ticker || '未知代码';
+      open.querySelector('.ho-name').textContent = item.stock_name ? ` · ${item.stock_name}` : '';
       const badge = decisionBadgeHtml(item.decision);
-      if (badge) {
-        tags.innerHTML = badge;
-      } else {
-        const tag = document.createElement('span');
-        tag.className = 'tag';
-        tag.textContent = '已归档';
-        tags.appendChild(tag);
-      }
+      open.querySelector('.ho-top').insertAdjacentHTML('beforeend', badge || '<span class="tag">已归档</span>');
       const owner = state.adminToken
         ? item.owner_email || item.owner_uid || '历史未归属'
         : '';
-      const created = (item.created_at || '').replace('T', ' ').slice(0, 16);
-      open.querySelector('small').textContent = owner ? `${owner} · ${created}` : created;
+      const tradeDate = item.trade_date || (item.created_at || '').slice(0, 10) || '未知';
+      open.querySelector('.ho-trade-date').textContent = `分析日 ${tradeDate}`;
+      open.querySelector('.ho-created').textContent = `${formatEventTime(item.created_at) || '--:--'} 归档`;
+      const ownerNode = open.querySelector('.ho-owner');
+      ownerNode.textContent = owner;
+      ownerNode.hidden = !owner;
       open.addEventListener('click', () => openHistoryReport(item.id));
 
       const del = document.createElement('button');
@@ -1125,10 +1304,17 @@
     const detail = qs('#history-detail');
     const report = state.historyReport;
     if (!detail || !report) return;
-    setText('#history-detail-title', historyLabel(report));
-    const analysts = (report.analysts || []).map(key => TEAM_ROLES[key]?.label || key).join('、');
-    setText('#history-detail-meta', analysts ? `分析模块：${analysts}` : '完整团队报告');
-    // Surface the archived decision as a badge in the summary head.
+    setText('#history-detail-title', report.ticker || '未知代码');
+    setText('#history-detail-name', report.stock_name || '');
+    const moduleCount = (report.analysts || []).length;
+    const created = formatEventTime(report.created_at);
+    const owner = state.adminToken ? report.owner_email || report.owner_uid || '' : '';
+    setText('#history-detail-meta', [
+      `分析日 ${report.trade_date || '未知'}`,
+      created ? `${created} 归档` : '',
+      `${moduleCount} 个分析模块`,
+      owner
+    ].filter(Boolean).join(' · '));
     const summary = qs('#history-summary');
     if (summary) {
       summary.querySelector('.decision-badge')?.remove();
@@ -1165,13 +1351,13 @@
     if (!root) return;
     if (!state.adminToken) {
       root.innerHTML = `
-        <section class="panel">
+        <section class="panel admin-login-panel">
           <div class="panel-header">
             <h3>后台管理</h3>
             <p>需要管理员登录</p>
           </div>
           <div class="panel-body">
-            <p class="helper-text">登录后可配置白名单和模型 API Key。</p>
+            <p class="helper-text">登录后可管理模型配置与访问白名单。本地管理员会话保存在当前浏览器。</p>
             <button type="button" id="admin-login-from-view">管理员登录</button>
           </div>
         </section>
@@ -1184,82 +1370,117 @@
       .join('');
     root.innerHTML = `
       <div class="workspace-grid admin-grid">
-        <div class="admin-session-bar">
-          <div class="sess-info">
-            <span class="state-pill done">已登录</span>
-            <p class="helper-text">退出后会清除本地管理员 token，不影响已保存的模型和白名单配置。</p>
+        <div class="admin-commandbar">
+          <div class="admin-tabs" role="tablist" aria-label="后台配置类型">
+            <button class="admin-tab ${state.adminPane === 'models' ? 'active' : ''}" type="button" data-admin-pane="models">模型管理</button>
+            <button class="admin-tab ${state.adminPane === 'whitelist' ? 'active' : ''}" type="button" data-admin-pane="whitelist">白名单</button>
           </div>
-          <button class="secondary-button" type="button" id="admin-logout">退出登录</button>
+          <div class="admin-session-inline">
+            <span class="state-pill done">管理员已登录</span>
+            <button class="secondary-button compact-button" type="button" id="admin-logout">退出</button>
+          </div>
         </div>
-        <div class="admin-forms">
-          <section class="panel">
+
+        <div class="admin-pane ${state.adminPane === 'models' ? 'active' : ''}" data-admin-content="models">
+          <section class="panel admin-list-panel">
             <div class="panel-header">
-              <h3>模型配置</h3>
+              <div><h3>模型配置</h3><span class="admin-count" id="model-count">加载中</span></div>
+              <div class="admin-header-actions">
+                <button class="icon-button history-refresh" type="button" data-reload-admin aria-label="刷新模型配置" title="刷新">↻</button>
+                <button class="secondary-button compact-button" type="button" id="new-model-config">新增模型</button>
+              </div>
             </div>
-            <div class="panel-body admin-form">
-              <label for="model-provider">供应商</label>
-              <select id="model-provider">${providerOptions}</select>
-              <label for="model-name">显示名称</label>
-              <input id="model-name" value="DeepSeek 默认">
-              <label for="model-base-url">Base URL</label>
-              <input id="model-base-url" readonly>
-              <p class="helper-text" id="model-base-url-hint">官方供应商地址已自动填充。</p>
-              <label for="model-quick">快速模型</label>
-              <input id="model-quick" list="model-options" autocomplete="off" placeholder="获取列表或手动输入模型 ID">
-              <label for="model-deep">深度模型</label>
-              <input id="model-deep" list="model-options" autocomplete="off" placeholder="可与快速模型相同">
+            <div class="table-wrap" id="model-list"><div class="empty-state">加载中…</div></div>
+          </section>
+          <section class="panel admin-editor-panel">
+            <div class="panel-header"><h3 id="model-editor-title">新增模型</h3><span class="tag" id="model-editor-tag">新配置</span></div>
+            <div class="admin-editor-form">
+              <div class="admin-field"><label for="model-provider">供应商</label><select id="model-provider">${providerOptions}</select></div>
+              <div class="admin-field"><label for="model-name">显示名称</label><input id="model-name" autocomplete="off"></div>
+              <div class="admin-field full">
+                <label for="model-base-url">Base URL</label><input id="model-base-url" readonly>
+                <p class="helper-text" id="model-base-url-hint">官方供应商地址已自动填充。</p>
+              </div>
+              <div class="admin-field"><label for="model-quick">快速模型</label><input id="model-quick" list="model-options" autocomplete="off" placeholder="选择或输入模型 ID"></div>
+              <div class="admin-field"><label for="model-deep">深度模型</label><input id="model-deep" list="model-options" autocomplete="off" placeholder="可与快速模型相同"></div>
               <datalist id="model-options"></datalist>
-              <label for="model-api-key">API Key</label>
-              <input id="model-api-key" type="password" autocomplete="off">
-              <button class="secondary-button" type="button" id="fetch-model-catalog">获取模型列表</button>
-              <button type="button" id="save-model-config">保存模型</button>
-              <div class="status-box" id="model-status">等待保存</div>
-            </div>
-          </section>
-          <section class="panel">
-            <div class="panel-header">
-              <h3>白名单</h3>
-            </div>
-            <div class="panel-body admin-form">
-              <label for="wl-email">邮箱</label>
-              <input id="wl-email" autocomplete="off">
-              <label for="wl-uid">UID</label>
-              <input id="wl-uid" autocomplete="off">
-              <label for="wl-status">状态</label>
-              <select id="wl-status">
-                <option value="active">启用</option>
-                <option value="pending">待确认</option>
-                <option value="blocked">禁用</option>
-              </select>
-              <label for="wl-limit">每日次数</label>
-              <input id="wl-limit" type="number" min="0" value="5">
-              <label for="wl-note">备注</label>
-              <textarea id="wl-note"></textarea>
-              <button type="button" id="save-whitelist">保存白名单</button>
-              <div class="status-box" id="whitelist-status">等待保存</div>
+              <div class="admin-field full">
+                <label for="model-api-key">API Key</label><input id="model-api-key" type="password" autocomplete="new-password" placeholder="编辑时留空即保留现有 Key">
+              </div>
+              <div class="admin-field full admin-toggle-row">
+                <label class="toggle-option"><input id="model-enabled" type="checkbox" checked>启用此配置</label>
+              </div>
+              <div class="status-box admin-field full" id="model-status"></div>
+              <div class="admin-editor-actions">
+                <button class="secondary-button danger-button" type="button" id="delete-model-config" hidden>删除</button>
+                <button class="secondary-button" type="button" id="set-default-model" hidden>设为默认</button>
+                <button class="secondary-button" type="button" id="fetch-model-catalog">获取模型列表</button>
+                <button type="button" id="save-model-config">保存模型</button>
+              </div>
             </div>
           </section>
         </div>
-        <section class="panel admin-table-panel">
-          <div class="panel-header">
-            <h3>当前配置</h3>
-            <button class="secondary-button compact-button" type="button" id="reload-admin-data">刷新</button>
-          </div>
-          <div class="table-wrap" id="admin-data"><div class="empty-state">加载中…</div></div>
-        </section>
+
+        <div class="admin-pane ${state.adminPane === 'whitelist' ? 'active' : ''}" data-admin-content="whitelist">
+          <section class="panel admin-list-panel">
+            <div class="panel-header">
+              <div><h3>白名单用户</h3><span class="admin-count" id="whitelist-count">加载中</span></div>
+              <div class="admin-header-actions">
+                <button class="icon-button history-refresh" type="button" data-reload-admin aria-label="刷新白名单" title="刷新">↻</button>
+                <button class="secondary-button compact-button" type="button" id="new-whitelist">新增用户</button>
+              </div>
+            </div>
+            <div class="table-wrap" id="whitelist-list"><div class="empty-state">加载中…</div></div>
+          </section>
+          <section class="panel admin-editor-panel">
+            <div class="panel-header"><h3 id="whitelist-editor-title">新增白名单</h3><span class="dot-badge pending" id="whitelist-editor-tag">待录入</span></div>
+            <div class="admin-editor-form">
+              <div class="admin-field full">
+                <label for="wl-email">邮箱</label><input id="wl-email" type="email" autocomplete="off">
+                <p class="helper-text" id="wl-email-hint">邮箱是访问匹配键，保存既有用户时不可修改。</p>
+              </div>
+              <div class="admin-field"><label for="wl-uid">UID</label><input id="wl-uid" autocomplete="off"></div>
+              <div class="admin-field"><label for="wl-status">状态</label><select id="wl-status"><option value="active">启用</option><option value="pending">待确认</option><option value="blocked">禁用</option></select></div>
+              <div class="admin-field"><label for="wl-limit">每日次数</label><input id="wl-limit" type="number" min="0" value="5"></div>
+              <div class="admin-field full"><label for="wl-note">备注</label><textarea id="wl-note"></textarea></div>
+              <div class="status-box admin-field full" id="whitelist-status"></div>
+              <div class="admin-editor-actions">
+                <button class="secondary-button danger-button" type="button" id="delete-whitelist" hidden>移除用户</button>
+                <button type="button" id="save-whitelist">保存白名单</button>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     `;
     qs('#admin-logout')?.addEventListener('click', logoutAdmin);
+    root.querySelectorAll('.admin-tab').forEach(tab => tab.addEventListener('click', () => switchAdminPane(tab.dataset.adminPane)));
+    root.querySelectorAll('[data-reload-admin]').forEach(button => button.addEventListener('click', loadAdminData));
+    qs('#new-model-config')?.addEventListener('click', clearModelEditor);
+    qs('#new-whitelist')?.addEventListener('click', clearWhitelistEditor);
     qs('#fetch-model-catalog')?.addEventListener('click', fetchModelCatalog);
     qs('#save-model-config')?.addEventListener('click', saveModelConfig);
+    qs('#set-default-model')?.addEventListener('click', setDefaultModel);
+    qs('#delete-model-config')?.addEventListener('click', deleteModelConfig);
     qs('#save-whitelist')?.addEventListener('click', saveWhitelist);
-    qs('#reload-admin-data')?.addEventListener('click', loadAdminData);
-    qs('#model-provider')?.addEventListener('change', applyProviderPreset);
+    qs('#delete-whitelist')?.addEventListener('click', deleteWhitelist);
+    qs('#model-provider')?.addEventListener('change', () => applyProviderPreset(true));
     applyProviderPreset();
     loadAdminData().catch(err => {
-      const dataRoot = qs('#admin-data');
-      if (dataRoot) dataRoot.textContent = `加载失败：${err.message}`;
+      setStatus(state.adminPane === 'models' ? '#model-status' : '#whitelist-status', `加载失败：${err.message}`, false);
     });
+  }
+
+  function switchAdminPane(pane) {
+    state.adminPane = pane === 'whitelist' ? 'whitelist' : 'models';
+    document.querySelectorAll('.admin-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.adminPane === state.adminPane));
+    document.querySelectorAll('.admin-pane').forEach(panel => panel.classList.toggle('active', panel.dataset.adminContent === state.adminPane));
+    if (state.view === 'admin') {
+      const query = new URLSearchParams();
+      query.set('view', 'admin');
+      query.set('adminPane', state.adminPane);
+      history.replaceState(null, '', `?${query.toString()}`);
+    }
   }
 
   function fillModelOptions(models) {
@@ -1274,7 +1495,7 @@
     });
   }
 
-  function applyProviderPreset() {
+  function applyProviderPreset(clearModels = true) {
     const providerSelect = qs('#model-provider');
     if (!providerSelect) return;
     const preset = PROVIDER_PRESETS[providerSelect.value] || PROVIDER_PRESETS.deepseek;
@@ -1294,19 +1515,18 @@
           ? '官方供应商地址已自动填充，不可修改。'
           : '该供应商使用官方默认地址，无需填写。';
     }
-    fillModelOptions([]);
-    const quick = qs('#model-quick');
-    const deep = qs('#model-deep');
-    if (quick) quick.value = '';
-    if (deep) deep.value = '';
+    if (clearModels) {
+      fillModelOptions([]);
+      if (qs('#model-quick')) qs('#model-quick').value = '';
+      if (qs('#model-deep')) qs('#model-deep').value = '';
+    }
     setStatus(
       '#model-status',
       preset.catalog_supported ? '填写 API Key 后获取实时模型列表' : '该供应商请手动填写模型 ID',
       undefined
     );
     const nameInput = qs('#model-name');
-    if (nameInput && !nameInput.dataset.touched) nameInput.value = `${preset.label} 默认`;
-    nameInput?.addEventListener('input', () => { nameInput.dataset.touched = 'true'; }, { once: true });
+    if (clearModels && nameInput && !nameInput.value) nameInput.value = `${preset.label} 默认`;
   }
 
   async function fetchModelCatalog() {
@@ -1318,7 +1538,10 @@
       const result = await apiJson('/api/admin/model-catalog', {
         method: 'POST',
         headers: adminHeaders(),
-        body: JSON.stringify({ provider, api_key: apiKey, base_url: baseUrl })
+        body: JSON.stringify({
+          provider, api_key: apiKey, base_url: baseUrl,
+          config_id: state.selectedModelId || undefined
+        })
       });
       fillModelOptions(result.models || []);
       if (result.source === 'manual') {
@@ -1349,20 +1572,24 @@
 
   async function saveModelConfig() {
     try {
-      await apiJson('/api/admin/model-configs', {
+      const result = await apiJson('/api/admin/model-configs', {
         method: 'POST',
         headers: adminHeaders(),
         body: JSON.stringify({
+          id: state.selectedModelId || undefined,
           display_name: qs('#model-name')?.value || '',
           provider: qs('#model-provider')?.value || 'deepseek',
           base_url: qs('#model-base-url')?.value || '',
           quick_model: qs('#model-quick')?.value || '',
           deep_model: qs('#model-deep')?.value || '',
-          api_key: qs('#model-api-key')?.value || ''
+          api_key: qs('#model-api-key')?.value || '',
+          enabled: Boolean(qs('#model-enabled')?.checked),
+          is_default: state.adminModels.find(item => item.id === state.selectedModelId)?.is_default || false
         })
       });
-      setStatus('#model-status', '模型配置已保存', true);
+      state.selectedModelId = result.item?.id || state.selectedModelId;
       await loadAdminData();
+      setStatus('#model-status', '模型配置已保存', true);
     } catch (err) {
       setStatus('#model-status', `保存失败：${err.message}`, false);
     }
@@ -1370,7 +1597,7 @@
 
   async function saveWhitelist() {
     try {
-      await apiJson('/api/admin/whitelist', {
+      const result = await apiJson('/api/admin/whitelist', {
         method: 'POST',
         headers: adminHeaders(),
         body: JSON.stringify({
@@ -1381,8 +1608,9 @@
           note: qs('#wl-note')?.value || ''
         })
       });
-      setStatus('#whitelist-status', '白名单已保存', true);
+      state.selectedWhitelistEmail = result.item?.email || qs('#wl-email')?.value || '';
       await loadAdminData();
+      setStatus('#whitelist-status', '白名单已保存', true);
     } catch (err) {
       setStatus('#whitelist-status', `保存失败：${err.message}`, false);
     }
@@ -1394,20 +1622,36 @@
       apiJson('/api/admin/model-configs', { headers: adminHeaders() }),
       apiJson('/api/admin/whitelist', { headers: adminHeaders() })
     ]);
-    const root = qs('#admin-data');
-    if (!root) return;
-    root.innerHTML = `
-      <h4>模型</h4>
-      ${renderAdminModels(models.items || [])}
-      <h4>白名单</h4>
-      ${renderWhitelist(whitelist.items || [])}
-    `;
+    state.adminModels = models.items || [];
+    state.adminWhitelist = whitelist.items || [];
+    if (state.selectedModelId && !state.adminModels.some(item => item.id === state.selectedModelId)) state.selectedModelId = null;
+    if (state.selectedWhitelistEmail && !state.adminWhitelist.some(item => item.email === state.selectedWhitelistEmail)) state.selectedWhitelistEmail = '';
+    if (!state.selectedModelId && state.adminModels.length) state.selectedModelId = state.adminModels[0].id;
+    if (!state.selectedWhitelistEmail && state.adminWhitelist.length) state.selectedWhitelistEmail = state.adminWhitelist[0].email;
+    renderAdminLists();
+    if (state.selectedModelId) fillModelEditor(state.adminModels.find(item => item.id === state.selectedModelId));
+    else clearModelEditor();
+    if (state.selectedWhitelistEmail) fillWhitelistEditor(state.adminWhitelist.find(item => item.email === state.selectedWhitelistEmail));
+    else clearWhitelistEditor();
+  }
+
+  function renderAdminLists() {
+    const modelList = qs('#model-list');
+    const whitelistList = qs('#whitelist-list');
+    if (modelList) modelList.innerHTML = renderAdminModels(state.adminModels);
+    if (whitelistList) whitelistList.innerHTML = renderWhitelist(state.adminWhitelist);
+    setText('#model-count', `${state.adminModels.filter(item => item.enabled).length} 个可用配置`);
+    const activeCount = state.adminWhitelist.filter(item => item.status === 'active').length;
+    const pendingCount = state.adminWhitelist.filter(item => item.status === 'pending').length;
+    setText('#whitelist-count', `${activeCount} 个启用 · ${pendingCount} 个待确认`);
+    qs('#model-list')?.querySelectorAll('[data-model-id]').forEach(row => row.addEventListener('click', () => selectModel(Number(row.dataset.modelId))));
+    qs('#whitelist-list')?.querySelectorAll('[data-whitelist-email]').forEach(row => row.addEventListener('click', () => selectWhitelist(row.dataset.whitelistEmail)));
   }
 
   function renderAdminModels(items) {
     if (!items.length) return '<div class="empty-state">暂无模型配置</div>';
-    return `<table class="data-table"><thead><tr><th>名称</th><th>供应商</th><th>快速模型</th><th>深度模型</th><th>Key</th><th>状态</th></tr></thead><tbody>${
-      items.map(item => `<tr><td>${escapeHtml(item.display_name)}</td><td><span class="tag">${escapeHtml(item.provider)}</span></td><td class="mono">${escapeHtml(item.quick_model)}</td><td class="mono">${escapeHtml(item.deep_model)}</td><td class="mono">${escapeHtml(item.api_key_masked)}</td><td>${item.is_default ? '<span class="tag accent">默认</span>' : '<span class="tag">可用</span>'}</td></tr>`).join('')
+    return `<table class="data-table admin-model-table"><thead><tr><th>名称</th><th>供应商</th><th>快速模型</th><th>深度模型</th><th>Key</th><th>状态</th></tr></thead><tbody>${
+      items.map(item => `<tr class="selectable ${item.id === state.selectedModelId ? 'selected' : ''}" data-model-id="${item.id}"><td>${escapeHtml(item.display_name)}</td><td><span class="tag">${escapeHtml(item.provider)}</span></td><td class="mono">${escapeHtml(item.quick_model)}</td><td class="mono">${escapeHtml(item.deep_model)}</td><td class="mono">${escapeHtml(item.api_key_masked)}</td><td>${item.is_default ? '<span class="tag accent">默认</span>' : item.enabled ? '<span class="tag">可用</span>' : '<span class="tag">停用</span>'}</td></tr>`).join('')
     }</tbody></table>`;
   }
 
@@ -1415,34 +1659,152 @@
 
   function renderWhitelist(items) {
     if (!items.length) return '<div class="empty-state">暂无白名单用户</div>';
-    return `<table class="data-table"><thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead><tbody>${
-      items.map(item => `<tr><td>${escapeHtml(item.email)}</td><td class="mono">${escapeHtml(item.uid || '')}</td><td><span class="dot-badge ${escapeHtml(item.status)}">${escapeHtml(WL_STATUS_LABEL[item.status] || item.status)}</span></td><td class="num">${escapeHtml(item.daily_limit)}</td><td>${escapeHtml(item.note || '')}</td></tr>`).join('')
+    return `<table class="data-table admin-whitelist-table"><thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead><tbody>${
+      items.map(item => `<tr class="selectable ${item.email === state.selectedWhitelistEmail ? 'selected' : ''}" data-whitelist-email="${escapeHtml(item.email)}"><td>${escapeHtml(item.email)}</td><td class="mono">${escapeHtml(item.uid || '')}</td><td><span class="dot-badge ${escapeHtml(item.status)}">${escapeHtml(WL_STATUS_LABEL[item.status] || item.status)}</span></td><td class="num">${escapeHtml(item.daily_limit)}</td><td>${escapeHtml(item.note || '')}</td></tr>`).join('')
     }</tbody></table>`;
+  }
+
+  function selectModel(id) {
+    state.selectedModelId = id;
+    renderAdminLists();
+    fillModelEditor(state.adminModels.find(item => item.id === id));
+  }
+
+  function clearModelEditor() {
+    state.selectedModelId = null;
+    renderAdminLists();
+    setText('#model-editor-title', '新增模型');
+    setText('#model-editor-tag', '新配置');
+    qs('#model-editor-tag')?.classList.remove('accent');
+    if (qs('#model-provider')) qs('#model-provider').value = 'deepseek';
+    if (qs('#model-name')) qs('#model-name').value = '';
+    if (qs('#model-api-key')) qs('#model-api-key').value = '';
+    if (qs('#model-enabled')) qs('#model-enabled').checked = true;
+    qs('#delete-model-config')?.setAttribute('hidden', '');
+    qs('#set-default-model')?.setAttribute('hidden', '');
+    applyProviderPreset(true);
+    setStatus('#model-status', '', undefined);
+  }
+
+  function fillModelEditor(item) {
+    if (!item) return clearModelEditor();
+    state.selectedModelId = item.id;
+    setText('#model-editor-title', '编辑模型');
+    setText('#model-editor-tag', item.is_default ? '默认配置' : item.enabled ? '已启用' : '已停用');
+    qs('#model-editor-tag')?.classList.toggle('accent', item.is_default);
+    qs('#model-provider').value = item.provider;
+    applyProviderPreset(false);
+    qs('#model-name').value = item.display_name || '';
+    qs('#model-base-url').value = item.base_url || PROVIDER_PRESETS[item.provider]?.base_url || '';
+    qs('#model-quick').value = item.quick_model || '';
+    qs('#model-deep').value = item.deep_model || '';
+    qs('#model-api-key').value = '';
+    qs('#model-api-key').placeholder = `留空保留 ${item.api_key_masked || '现有 Key'}`;
+    qs('#model-enabled').checked = Boolean(item.enabled);
+    qs('#delete-model-config').hidden = false;
+    qs('#set-default-model').hidden = Boolean(item.is_default || !item.enabled);
+    setStatus('#model-status', '', undefined);
+  }
+
+  async function setDefaultModel() {
+    if (!state.selectedModelId) return;
+    try {
+      await apiJson(`/api/admin/model-configs/${state.selectedModelId}/set-default`, { method: 'POST', headers: adminHeaders() });
+      await loadAdminData();
+    } catch (err) { setStatus('#model-status', `设置失败：${err.message}`, false); }
+  }
+
+  async function deleteModelConfig() {
+    if (!state.selectedModelId || (typeof confirm === 'function' && !confirm('确认删除这个模型配置？'))) return;
+    try {
+      await apiJson(`/api/admin/model-configs/${state.selectedModelId}`, { method: 'DELETE', headers: adminHeaders() });
+      state.selectedModelId = null;
+      await loadAdminData();
+    } catch (err) { setStatus('#model-status', `删除失败：${err.message}`, false); }
+  }
+
+  function selectWhitelist(email) {
+    state.selectedWhitelistEmail = email;
+    renderAdminLists();
+    fillWhitelistEditor(state.adminWhitelist.find(item => item.email === email));
+  }
+
+  function clearWhitelistEditor() {
+    state.selectedWhitelistEmail = '';
+    renderAdminLists();
+    setText('#whitelist-editor-title', '新增白名单');
+    const tag = qs('#whitelist-editor-tag');
+    if (tag) { tag.textContent = '待录入'; tag.className = 'dot-badge pending'; }
+    if (qs('#wl-email')) { qs('#wl-email').value = ''; qs('#wl-email').readOnly = false; }
+    if (qs('#wl-uid')) qs('#wl-uid').value = '';
+    if (qs('#wl-status')) qs('#wl-status').value = 'active';
+    if (qs('#wl-limit')) qs('#wl-limit').value = '5';
+    if (qs('#wl-note')) qs('#wl-note').value = '';
+    qs('#delete-whitelist')?.setAttribute('hidden', '');
+    setStatus('#whitelist-status', '', undefined);
+  }
+
+  function fillWhitelistEditor(item) {
+    if (!item) return clearWhitelistEditor();
+    state.selectedWhitelistEmail = item.email;
+    setText('#whitelist-editor-title', '编辑白名单');
+    const tag = qs('#whitelist-editor-tag');
+    if (tag) { tag.textContent = WL_STATUS_LABEL[item.status] || item.status; tag.className = `dot-badge ${item.status}`; }
+    qs('#wl-email').value = item.email || '';
+    qs('#wl-email').readOnly = true;
+    qs('#wl-uid').value = item.uid || '';
+    qs('#wl-status').value = item.status || 'active';
+    qs('#wl-limit').value = String(item.daily_limit ?? 5);
+    qs('#wl-note').value = item.note || '';
+    qs('#delete-whitelist').hidden = false;
+    setStatus('#whitelist-status', '', undefined);
+  }
+
+  async function deleteWhitelist() {
+    const item = state.adminWhitelist.find(row => row.email === state.selectedWhitelistEmail);
+    if (!item || (typeof confirm === 'function' && !confirm('确认从白名单移除这个用户？'))) return;
+    try {
+      await apiJson(`/api/admin/whitelist/${item.id}`, { method: 'DELETE', headers: adminHeaders() });
+      state.selectedWhitelistEmail = '';
+      await loadAdminData();
+    } catch (err) { setStatus('#whitelist-status', `移除失败：${err.message}`, false); }
   }
 
   function boot() {
     const params = new URLSearchParams(location.search);
     const requestedView = params.get('view') || state.view;
-    applyTheme(state.theme);
-    if (state.identityEmail) {
-      const input = qs('#identity-email');
-      if (input) input.value = state.identityEmail;
+    const requestedAdminPane = params.get('adminPane');
+    if (requestedAdminPane === 'models' || requestedAdminPane === 'whitelist') {
+      state.adminPane = requestedAdminPane;
     }
+    applyTheme(state.theme);
+    if (state.identityEmail && qs('#identity-email')) qs('#identity-email').value = state.identityEmail;
     updateIdentitySummary();
     document.querySelectorAll('.nav-item').forEach(button => {
       button.addEventListener('click', () => showView(button.dataset.view));
     });
     qs('#theme-toggle')?.addEventListener('click', toggleTheme);
-    qs('#save-identity')?.addEventListener('click', async () => {
-      const email = qs('#identity-email')?.value.trim() || '';
-      state.identityEmail = email;
-      localStorage.setItem('ta_identity_email', email);
-      updateIdentitySummary();
-      await restoreActiveRun();
-      if (state.view === 'reports') await loadReportHistory();
+    qs('#open-identity-modal')?.addEventListener('click', openIdentityModal);
+    qs('#close-identity-modal')?.addEventListener('click', closeIdentityModal);
+    qs('#cancel-identity-modal')?.addEventListener('click', closeIdentityModal);
+    qs('#save-identity')?.addEventListener('click', saveIdentity);
+    qs('#identity-email')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') saveIdentity();
     });
-    qs('#open-admin-login')?.addEventListener('click', openAdminEntry);
     qs('#close-admin-modal')?.addEventListener('click', closeAdminModal);
+    document.querySelectorAll('.modal-backdrop').forEach(modal => {
+      modal.addEventListener('click', event => {
+        if (event.target !== modal) return;
+        if (modal.id === 'identity-modal') closeIdentityModal();
+        if (modal.id === 'admin-modal') closeAdminModal();
+      });
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      if (!qs('#identity-modal')?.hidden) closeIdentityModal();
+      if (!qs('#admin-modal')?.hidden) closeAdminModal();
+    });
+    window.addEventListener('resize', focusCurrentAgent);
 
     renderAnalysisWorkspace();
     renderReportCenter();
@@ -1453,6 +1815,7 @@
       })
       .finally(() => restoreActiveRun());
     showView(requestedView);
+    if (params.get('identity') === 'edit') openIdentityModal();
   }
 
   window.TradingAgentsWorkbench = {

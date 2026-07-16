@@ -38,7 +38,9 @@ class WebStaticTests(unittest.TestCase):
         self.assertIn("function addCollapsibleLog", self.js)
         self.assertIn("safeDetail.length > COLLAPSE_LIMIT", self.js)
         self.assertIn("document.createElement('details')", self.js)
-        self.assertIn("团队协作", self.js)
+        self.assertIn("function advancePipelineStage()", self.js)
+        self.assertIn("位分析师并行处理中", self.js)
+        self.assertIn("formatEventTime(createdAt)", self.js)
 
     def test_team_roles_are_mapped_from_report_sections(self):
         self.assertIn("const TEAM_ROLES", self.js)

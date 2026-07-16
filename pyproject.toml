@@ -53,6 +53,9 @@ web = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
 ]
+cloudbase = [
+    "pymysql>=1.1",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"

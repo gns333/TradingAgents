@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
 import threading
-from typing import Any, Callable, Iterable
+from collections.abc import Callable, Iterable
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Any
 
 from .events import AnalysisEvent
 from .runner import AnalysisRequest, create_graph_for_request, stream_analysis_events
 from .store import ApplicationStore
-
 
 MAX_EXECUTOR_WORKERS = 8
 

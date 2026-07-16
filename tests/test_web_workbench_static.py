@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 
 from tradingagents.web import api
 
-
 STATIC_DIR = Path("tradingagents/web/static")
 
 

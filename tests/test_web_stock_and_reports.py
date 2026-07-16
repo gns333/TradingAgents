@@ -2,8 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tradingagents.web import api
-from tradingagents.web import stock_directory
+from tradingagents.web import api, stock_directory
 from tradingagents.web.admin_store import AdminStore
 
 

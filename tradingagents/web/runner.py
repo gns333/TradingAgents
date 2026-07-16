@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from .events import AnalysisEvent
 from .store_factory import get_application_store
-
 
 REPORT_SECTIONS: tuple[str, ...] = (
     "market_report",

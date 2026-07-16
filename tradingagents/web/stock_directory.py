@@ -15,14 +15,13 @@ Lookups are purely syntactic/substring based, mirroring the philosophy of
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from pathlib import Path
 import time
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from ..dataflows.china_symbol_utils import infer_exchange, parse_china_symbol
-
 
 _CACHE_DIR = Path.home() / ".tradingagents" / "cache"
 _CACHE_FILE = _CACHE_DIR / "a_share_directory.json"

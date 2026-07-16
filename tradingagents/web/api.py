@@ -165,6 +165,12 @@ def create_app(
     def healthz():
         return {"ok": True}
 
+    @app.get("/readyz")
+    def readyz():
+        if not store.ping():
+            raise HTTPException(status_code=503, detail="database unavailable")
+        return {"ok": True}
+
     @app.get("/api/runtime-config")
     def runtime_config():
         if runtime.mode == "local":

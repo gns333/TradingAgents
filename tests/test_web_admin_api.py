@@ -152,6 +152,20 @@ def test_legacy_connection_bound_event_stream_is_removed():
     assert "/api/events" not in paths
 
 
+def test_readyz_reports_database_readiness(tmp_path: Path, monkeypatch):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    client = TestClient(api.create_app(store=store, task_service=FakeTaskService()))
+
+    assert client.get("/healthz").json() == {"ok": True}
+    assert client.get("/readyz").json() == {"ok": True}
+
+    monkeypatch.setattr(store, "ping", lambda: False, raising=False)
+    unavailable = client.get("/readyz")
+
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"] == "database unavailable"
+
+
 def test_sector_screen_api_is_removed():
     client = TestClient(api.create_app())
 

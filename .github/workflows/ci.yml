@@ -89,3 +89,10 @@ jobs:
           pip install -e ".[dev,web,cloudbase]"
       - name: Run MySQL store contract
         run: pytest tests/test_web_mysql_store.py -v
+
+  docker-build:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t tradingagents-cloudbase .

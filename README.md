@@ -134,6 +134,19 @@ For local models with Ollama:
 docker compose --profile ollama run --rm tradingagents-ollama
 ```
 
+### Web and CloudBase deployment
+
+The Web workbench can run locally with SQLite and the built-in administrator login:
+
+```bash
+pip install -e ".[web,china]"
+tradingagents-web --host 127.0.0.1 --port 8000
+```
+
+The same application can be deployed to Tencent CloudBase with CloudBase Web Auth, MySQL persistence, encrypted model-provider API keys, and database-driven task concurrency. See the [CloudBase deployment guide](docs/deployment/cloudbase.md) for GitHub push-to-deploy setup, required infrastructure variables, HTTP gateway authentication, and first-administrator initialization.
+
+Model-provider API keys are entered in the Web administrator UI; they are not required as CloudBase deployment environment variables.
+
 ### Required APIs
 
 TradingAgents supports multiple LLM providers. Set the API key for your chosen provider:

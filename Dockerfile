@@ -8,7 +8,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /build
 COPY . .
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[web,china,cloudbase]"
 
 FROM python:3.12-slim
 
@@ -25,4 +25,4 @@ WORKDIR /home/appuser/app
 
 COPY --from=builder --chown=appuser:appuser /build .
 
-ENTRYPOINT ["tradingagents"]
+CMD ["tradingagents-web", "--host", "0.0.0.0"]

@@ -52,6 +52,8 @@ class RuntimeSettings:
 class ApplicationStore(Protocol):
     """Behavior required by the Web API, runner, and task scheduler."""
 
+    def ping(self) -> bool: ...
+
     def get_runtime_settings(self) -> RuntimeSettings: ...
 
     def update_runtime_settings(

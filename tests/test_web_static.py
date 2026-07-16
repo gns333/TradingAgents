@@ -1,8 +1,7 @@
 """Static web UI behavior checks for the split workbench assets."""
 
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 STATIC_DIR = Path("tradingagents/web/static")
 
@@ -55,6 +54,26 @@ class WebStaticTests(unittest.TestCase):
         self.assertIn("tab.setAttribute('role', 'tab')", self.js)
         self.assertIn("tab.addEventListener('click', () => paint(section))", self.js)
         self.assertIn("buildReportTabs(root, state.reports", self.js)
+
+def test_dockerfile_starts_web_app_and_installs_cloudbase_extras():
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert 'pip install --no-cache-dir ".[web,china,cloudbase]"' in dockerfile
+    assert 'CMD ["tradingagents-web", "--host", "0.0.0.0"]' in dockerfile
+    assert 'ENTRYPOINT ["tradingagents"]' not in dockerfile
+
+
+def test_dockerignore_excludes_secrets_and_local_state():
+    ignored = Path(".dockerignore").read_text(encoding="utf-8")
+
+    for value in (".env", ".git", ".tradingagents", "__pycache__", ".pytest_cache"):
+        assert value in ignored
+
+
+def test_docker_compose_preserves_local_cli_entrypoint():
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert 'entrypoint: ["tradingagents"]' in compose
 
 
 if __name__ == "__main__":

@@ -81,6 +81,13 @@ class AdminStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def ping(self) -> bool:
+        try:
+            with self._connect() as conn:
+                return int(conn.execute("SELECT 1").fetchone()[0]) == 1
+        except Exception:
+            return False
+
     def _init_db(self) -> None:
         with self._connect() as conn:
             conn.executescript(

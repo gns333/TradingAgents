@@ -1,6 +1,7 @@
 services:
   tradingagents:
     build: .
+    entrypoint: ["tradingagents"]
     env_file:
       - .env
     volumes:
@@ -17,6 +18,7 @@ services:
 
   tradingagents-ollama:
     build: .
+    entrypoint: ["tradingagents"]
     env_file:
       - .env
     environment:

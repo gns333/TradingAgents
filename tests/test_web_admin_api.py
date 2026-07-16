@@ -1,17 +1,26 @@
+import base64
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from tradingagents.web import api
 from tradingagents.web.admin_store import AdminStore
-from tradingagents.web.model_catalog import ModelInfo
 from tradingagents.web.events import AnalysisEvent
+from tradingagents.web.model_catalog import ModelInfo
+from tradingagents.web.runtime import WebRuntimeConfig
 from tradingagents.web.task_service import AnalysisTaskService
 
 
 class FakeTaskService:
-    def notify(self):
+    def __init__(self):
+        self.notified = False
+
+    def start(self):
         return None
+
+    def notify(self):
+        self.notified = True
 
     def submit(self, run_id):
         return None
@@ -21,6 +30,22 @@ class FakeTaskService:
 
     def shutdown(self, wait=True):
         return None
+
+
+def _cloud_context(uid: str) -> str:
+    payload = json.dumps({"uid": uid}).encode("utf-8")
+    return base64.b64encode(payload).decode("ascii")
+
+
+def _cloud_runtime() -> WebRuntimeConfig:
+    return WebRuntimeConfig(
+        mode="cloudbase",
+        database_url="mysql+pymysql://unused",
+        cloudbase_env_id="env-123",
+        cloudbase_region="ap-shanghai",
+        cloudbase_publishable_key="publishable",
+        master_key=b"k" * 32,
+    )
 
 
 class FakeModelCatalog:
@@ -264,3 +289,168 @@ def test_background_run_completes_and_archives_without_opening_stream(tmp_path: 
     report = client.get(f"/api/reports/{run['report_id']}").json()["item"]
     assert report["stock_name"] == "贵州茅台"
     service.shutdown()
+
+
+def test_runtime_config_exposes_only_public_cloudbase_values(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+
+    response = client.get("/api/runtime-config")
+
+    assert response.json() == {
+        "runtime": "cloudbase",
+        "auth": "cloudbase",
+        "env_id": "env-123",
+        "region": "ap-shanghai",
+        "publishable_key": "publishable",
+        "sdk_url": (
+            "https://static.cloudbase.net/"
+            "cloudbase-js-sdk/2.28.6/cloudbase.full.js"
+        ),
+    }
+    assert "mysql" not in response.text
+    assert "master" not in response.text
+
+
+def test_cloudbase_admin_can_update_runtime_settings(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.upsert_app_user(
+        {"uid": "admin-1", "role": "admin", "status": "active"}
+    )
+    service = FakeTaskService()
+    client = TestClient(
+        api.create_app(
+            store=store,
+            runtime=_cloud_runtime(),
+            task_service=service,
+        )
+    )
+    headers = {"x-cloudbase-context": _cloud_context("admin-1")}
+
+    response = client.put(
+        "/api/admin/runtime-settings",
+        headers=headers,
+        json={
+            "analysis_concurrency_limit": 4,
+            "analysis_queue_limit": 50,
+            "accept_new_tasks": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["settings"]["analysis_concurrency_limit"] == 4
+    assert service.notified is True
+
+
+def test_cloudbase_user_cannot_call_admin_api(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.upsert_app_user(
+        {"uid": "user-1", "role": "user", "status": "active"}
+    )
+    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+
+    response = client.get(
+        "/api/admin/runtime-settings",
+        headers={"x-cloudbase-context": _cloud_context("user-1")},
+    )
+
+    assert response.status_code == 403
+
+
+def test_cloudbase_session_and_user_admin_endpoints(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.upsert_app_user(
+        {
+            "uid": "admin-1",
+            "email": "admin@example.com",
+            "role": "admin",
+            "status": "active",
+        }
+    )
+    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    headers = {"x-cloudbase-context": _cloud_context("admin-1")}
+
+    session = client.get("/api/session", headers=headers)
+    assert session.json()["user"]["is_admin"] is True
+
+    created = client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={"uid": "user-2", "role": "user", "status": "active"},
+    )
+    assert created.status_code == 200
+    assert created.json()["item"]["uid"] == "user-2"
+    assert client.get("/api/admin/users", headers=headers).status_code == 200
+
+
+def test_cloudbase_mode_hides_local_admin_password_endpoints(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+
+    assert client.post("/api/admin/setup", json={"password": "correct-horse"}).status_code == 404
+    assert client.post("/api/admin/login", json={"password": "correct-horse"}).status_code == 404
+
+
+def test_create_run_returns_429_when_global_queue_is_full(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.set_admin_password("correct-horse")
+    store.upsert_whitelist({"email": "a@example.com", "status": "active"})
+    store.upsert_whitelist({"email": "b@example.com", "status": "active"})
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 1,
+            "analysis_queue_limit": 1,
+            "accept_new_tasks": True,
+        },
+        updated_by="admin:local",
+    )
+    client = TestClient(
+        api.create_app(store=store, task_service=FakeTaskService())
+    )
+    payload = {
+        "ticker": "600519.SH",
+        "trade_date": "2026-07-16",
+        "analysts": ["market"],
+    }
+
+    first = client.post(
+        "/api/runs",
+        params={"access_email": "a@example.com"},
+        json=payload,
+    )
+    second = client.post(
+        "/api/runs",
+        params={"access_email": "b@example.com"},
+        json=payload,
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 429
+    assert second.json()["detail"]["error_type"] == "QueueLimitReached"
+
+
+def test_create_run_returns_503_when_submissions_are_paused(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 1,
+            "analysis_queue_limit": 20,
+            "accept_new_tasks": False,
+        },
+        updated_by="admin:local",
+    )
+    client = TestClient(
+        api.create_app(store=store, task_service=FakeTaskService())
+    )
+
+    response = client.post(
+        "/api/runs",
+        json={
+            "ticker": "600519.SH",
+            "trade_date": "2026-07-16",
+            "analysts": ["market"],
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error_type"] == "TaskSubmissionPaused"

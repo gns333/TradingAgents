@@ -2,23 +2,43 @@
 
 from __future__ import annotations
 
+import time
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-import time
 from typing import Any
 
 from .admin_store import ActiveRunExists, get_admin_store
 from .events import AnalysisEvent, sse_encode
-from .identity import IdentityRequired, Principal
+from .identity import (
+    IdentityRequired,
+    Principal,
+    create_identity_provider,
+)
 from .model_catalog import CatalogUnsupported, ModelCatalogError, get_model_catalog
+from .runtime import WebRuntimeConfig, load_web_runtime_config
 from .stock_directory import get_stock_directory
-from .task_service import create_task_service
+from .store import (
+    ApplicationStore,
+    QueueLimitReached,
+    TaskSubmissionPaused,
+)
+from .task_service import AnalysisTaskService, create_task_service
 
 STATIC_DIR = Path(__file__).with_name("static")
 ADMIN_HTML = STATIC_DIR / "admin.html"
+CLOUDBASE_SDK_URL = (
+    "https://static.cloudbase.net/"
+    "cloudbase-js-sdk/2.28.6/cloudbase.full.js"
+)
 
 
-def create_app():
+def create_app(
+    *,
+    store: ApplicationStore | None = None,
+    runtime: WebRuntimeConfig | None = None,
+    task_service: AnalysisTaskService | None = None,
+):
     """Create the optional FastAPI app.
 
     FastAPI is imported inside the factory so non-web users do not need the
@@ -38,13 +58,15 @@ def create_app():
 
     app = FastAPI(title="TradingAgents Web")
     app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
-    store = get_admin_store()
-    task_service = create_task_service(store)
+    runtime = runtime or load_web_runtime_config()
+    store = store or get_admin_store()
+    identity_provider = create_identity_provider(runtime, store)
+    task_service = task_service or create_task_service(store)
     app.state.task_service = task_service
 
     @app.on_event("startup")
     def recover_analysis_tasks():
-        task_service.recover()
+        task_service.start()
 
     @app.on_event("shutdown")
     def stop_analysis_tasks():
@@ -67,20 +89,15 @@ def create_app():
         request: Request,
         access_email: str | None = None,
     ) -> Principal:
-        is_admin = store.verify_admin_session(_admin_token(request))
-        if not store.admin_password_is_configured():
-            is_admin = True
+        is_admin = False
+        if runtime.mode == "local":
+            is_admin = store.verify_admin_session(_admin_token(request))
+            if not store.admin_password_is_configured():
+                is_admin = True
         try:
-            return Principal.from_values(
-                uid=(
-                    request.headers.get("x-cloudbase-uid")
-                    or request.headers.get("x-user-uid")
-                ),
-                email=(
-                    request.headers.get("x-cloudbase-email")
-                    or request.headers.get("x-user-email")
-                    or access_email
-                ),
+            return identity_provider.from_headers(
+                request.headers,
+                access_email=access_email,
                 is_admin=is_admin,
             )
         except IdentityRequired as exc:
@@ -91,9 +108,19 @@ def create_app():
                     "message": "请先登录或提供有效访问身份。",
                 },
             ) from exc
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_type": "AccessDenied",
+                    "message": str(exc),
+                },
+            ) from exc
 
     def _require_allowed_principal(principal: Principal, action: str) -> None:
         if principal.is_admin:
+            return
+        if runtime.mode == "cloudbase":
             return
         if not store.is_identity_allowed(principal.email, principal.uid):
             raise HTTPException(
@@ -112,9 +139,11 @@ def create_app():
             raise HTTPException(status_code=404, detail="analysis run not found")
         return run
 
-    def require_admin(request: Request) -> None:
-        if not store.verify_admin_session(_admin_token(request)):
-            raise HTTPException(status_code=401, detail="admin login required")
+    def require_admin(request: Request) -> Principal:
+        principal = _principal_from_request(request)
+        if not principal.is_admin:
+            raise HTTPException(status_code=403, detail="admin role required")
+        return principal
 
     def _set_admin_cookie(response: Response, token: str) -> None:
         response.set_cookie(
@@ -135,6 +164,31 @@ def create_app():
     @app.get("/healthz")
     def healthz():
         return {"ok": True}
+
+    @app.get("/api/runtime-config")
+    def runtime_config():
+        if runtime.mode == "local":
+            return {"runtime": "local", "auth": "local"}
+        return {
+            "runtime": "cloudbase",
+            "auth": "cloudbase",
+            "env_id": runtime.cloudbase_env_id,
+            "region": runtime.cloudbase_region,
+            "publishable_key": runtime.cloudbase_publishable_key,
+            "sdk_url": CLOUDBASE_SDK_URL,
+        }
+
+    @app.get("/api/session")
+    def session(request: Request):
+        principal = _principal_from_request(request)
+        return {
+            "user": {
+                "uid": principal.uid,
+                "email": principal.email,
+                "role": principal.role,
+                "is_admin": principal.is_admin,
+            }
+        }
 
     @app.get("/api/stocks/search")
     def search_stocks(q: str = Query("", min_length=0), limit: int = Query(10, ge=1, le=50)):
@@ -173,6 +227,16 @@ def create_app():
 
     @app.get("/api/admin/status")
     def admin_status(request: Request, response: Response):
+        if runtime.mode == "cloudbase":
+            try:
+                principal = _principal_from_request(request)
+            except HTTPException:
+                principal = None
+            return {
+                "runtime": "cloudbase",
+                "password_configured": False,
+                "session_valid": bool(principal and principal.is_admin),
+            }
         token = _admin_token(request)
         session_valid = store.verify_admin_session(token)
         if session_valid and token:
@@ -192,6 +256,8 @@ def create_app():
 
     @app.post("/api/admin/setup")
     def admin_setup(payload: dict[str, Any] = Body(...)):
+        if runtime.mode == "cloudbase":
+            raise HTTPException(status_code=404, detail="not found")
         if store.admin_password_is_configured():
             raise HTTPException(status_code=409, detail="admin password already configured")
         store.set_admin_password(_password_from_payload(payload))
@@ -199,6 +265,8 @@ def create_app():
 
     @app.post("/api/admin/login")
     def admin_login(response: Response, payload: dict[str, Any] = Body(...)):
+        if runtime.mode == "cloudbase":
+            raise HTTPException(status_code=404, detail="not found")
         if not store.verify_admin_password(_password_from_payload(payload)):
             raise HTTPException(status_code=401, detail="invalid admin password")
         token = store.create_admin_session()
@@ -224,6 +292,53 @@ def create_app():
         require_admin(request)
         store.delete_whitelist(item_id)
         return {"ok": True}
+
+    @app.get("/api/admin/users")
+    def list_users(request: Request):
+        require_admin(request)
+        return {"items": store.list_app_users()}
+
+    @app.post("/api/admin/users")
+    def save_user(request: Request, payload: dict[str, Any] = Body(...)):
+        require_admin(request)
+        try:
+            item = store.upsert_app_user(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"item": item}
+
+    @app.delete("/api/admin/users/{uid}")
+    def delete_user(uid: str, request: Request):
+        principal = require_admin(request)
+        if principal.uid and principal.uid == str(uid).strip():
+            raise HTTPException(
+                status_code=409,
+                detail="cannot delete the current administrator",
+            )
+        if not store.delete_app_user(uid):
+            raise HTTPException(status_code=404, detail="user not found")
+        return {"ok": True}
+
+    @app.get("/api/admin/runtime-settings")
+    def get_runtime_settings(request: Request):
+        require_admin(request)
+        return {"settings": asdict(store.get_runtime_settings())}
+
+    @app.put("/api/admin/runtime-settings")
+    def update_runtime_settings(
+        request: Request,
+        payload: dict[str, Any] = Body(...),
+    ):
+        principal = require_admin(request)
+        try:
+            settings = store.update_runtime_settings(
+                payload,
+                updated_by=principal.owner_key,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        task_service.notify()
+        return {"settings": asdict(settings)}
 
     @app.get("/api/admin/model-configs")
     def list_model_configs(request: Request):
@@ -340,6 +455,22 @@ def create_app():
                     "run": exc.run,
                 },
             ) from exc
+        except QueueLimitReached as exc:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error_type": "QueueLimitReached",
+                    "message": str(exc),
+                },
+            ) from exc
+        except TaskSubmissionPaused as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_type": "TaskSubmissionPaused",
+                    "message": str(exc),
+                },
+            ) from exc
         task_service.notify()
         return {"run": run}
 
@@ -397,9 +528,10 @@ def create_app():
                     data.update({"seq": cursor, "run_id": run_id})
                     yield sse_encode(AnalysisEvent(item["event"], data))
                 run = store.get_analysis_run(run_id)
-                if run is None or run["status"] in {"completed", "failed"}:
-                    if not store.list_analysis_events(run_id, after=cursor):
-                        return
+                if (
+                    run is None or run["status"] in {"completed", "failed"}
+                ) and not store.list_analysis_events(run_id, after=cursor):
+                    return
                 if not items:
                     yield ": keep-alive\n\n"
                 time.sleep(0.5)

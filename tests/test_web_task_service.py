@@ -1,4 +1,6 @@
 from pathlib import Path
+import threading
+import time
 
 from tradingagents.web.admin_store import AdminStore
 from tradingagents.web.events import AnalysisEvent
@@ -117,3 +119,123 @@ def test_recover_fails_running_run_and_executes_queued_run(tmp_path: Path):
     assert store.get_analysis_run(running["id"])["error_type"] == "WorkerInterrupted"
     assert store.get_analysis_run(queued["id"])["status"] == "completed"
     service.shutdown()
+
+
+def _wait_for_count(store, status: str, expected: int, timeout: float = 2.0) -> None:
+    deadline = time.time() + timeout
+    count = {
+        "queued": store.count_queued_analysis_runs,
+        "running": store.count_running_analysis_runs,
+    }[status]
+    while count() != expected and time.time() < deadline:
+        time.sleep(0.01)
+    assert count() == expected
+
+
+def test_dispatcher_obeys_dynamic_concurrency_and_keeps_excess_queued(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 1,
+            "analysis_queue_limit": 20,
+            "accept_new_tasks": True,
+        },
+        updated_by="uid:admin",
+    )
+    first = store.create_analysis_run(_run_payload("uid:u1"))
+    second = store.create_analysis_run(_run_payload("uid:u2"))
+    release = threading.Event()
+    started: list[str] = []
+
+    def event_stream(graph, request):
+        started.append(request.ticker)
+        release.wait(timeout=2)
+        yield AnalysisEvent("run_completed", {})
+
+    service = AnalysisTaskService(
+        store,
+        graph_builder=lambda request: object(),
+        event_stream=event_stream,
+    )
+    service.start()
+    service.notify()
+
+    _wait_for_count(store, "running", 1)
+    assert store.count_queued_analysis_runs() == 1
+    assert len(started) == 1
+
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 2,
+            "analysis_queue_limit": 20,
+            "accept_new_tasks": True,
+        },
+        updated_by="uid:admin",
+    )
+    service.notify()
+    _wait_for_count(store, "running", 2)
+    assert store.count_queued_analysis_runs() == 0
+
+    release.set()
+    service.shutdown()
+    assert store.get_analysis_run(first["id"])["status"] == "completed"
+    assert store.get_analysis_run(second["id"])["status"] == "completed"
+
+
+def test_lowering_limit_does_not_cancel_running_tasks(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 2,
+            "analysis_queue_limit": 20,
+            "accept_new_tasks": True,
+        },
+        updated_by="uid:admin",
+    )
+    runs = [
+        store.create_analysis_run(_run_payload(f"uid:u{index}"))
+        for index in range(1, 4)
+    ]
+    release = threading.Event()
+
+    def event_stream(graph, request):
+        release.wait(timeout=2)
+        yield AnalysisEvent("run_completed", {})
+
+    service = AnalysisTaskService(
+        store,
+        graph_builder=lambda request: object(),
+        event_stream=event_stream,
+    )
+    service.start()
+    service.notify()
+    _wait_for_count(store, "running", 2)
+
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 1,
+            "analysis_queue_limit": 20,
+            "accept_new_tasks": True,
+        },
+        updated_by="uid:admin",
+    )
+    service.notify()
+
+    assert store.count_running_analysis_runs() == 2
+    assert store.count_queued_analysis_runs() == 1
+
+    release.set()
+    deadline = time.time() + 2
+    while (
+        any(
+            store.get_analysis_run(run["id"])["status"] != "completed"
+            for run in runs
+        )
+        and time.time() < deadline
+    ):
+        time.sleep(0.01)
+    service.shutdown()
+    assert all(
+        store.get_analysis_run(run["id"])["status"] == "completed"
+        for run in runs
+    )

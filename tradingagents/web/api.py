@@ -340,7 +340,7 @@ def create_app():
                     "run": exc.run,
                 },
             ) from exc
-        task_service.submit(run["id"])
+        task_service.notify()
         return {"run": run}
 
     @app.get("/api/runs/active")

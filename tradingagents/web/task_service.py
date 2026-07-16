@@ -6,9 +6,12 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import threading
 from typing import Any, Callable, Iterable
 
-from .admin_store import AdminStore
 from .events import AnalysisEvent
 from .runner import AnalysisRequest, create_graph_for_request, stream_analysis_events
+from .store import ApplicationStore
+
+
+MAX_EXECUTOR_WORKERS = 8
 
 
 def _summarize_decision(text: str) -> str:
@@ -24,44 +27,119 @@ class AnalysisTaskService:
 
     def __init__(
         self,
-        store: AdminStore,
+        store: ApplicationStore,
         graph_builder: Callable[[AnalysisRequest], Any] = create_graph_for_request,
         event_stream: Callable[
             [Any, AnalysisRequest], Iterable[AnalysisEvent]
         ] = stream_analysis_events,
-        max_workers: int = 2,
     ):
         self.store = store
         self.graph_builder = graph_builder
         self.event_stream = event_stream
         self.executor = ThreadPoolExecutor(
-            max_workers=max_workers,
+            max_workers=MAX_EXECUTOR_WORKERS,
             thread_name_prefix="analysis",
         )
-        self._futures: dict[str, Future] = {}
-        self._lock = threading.Lock()
+        self._active: dict[str, Future] = {}
+        self._condition = threading.Condition()
+        self._started = False
+        self._recovered = False
+        self._stopping = False
+        self._dispatcher = threading.Thread(
+            target=self._dispatch_loop,
+            name="analysis-dispatcher",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        with self._condition:
+            if self._started:
+                return
+            if not self._recovered:
+                self.store.mark_interrupted_runs_failed()
+                self._recovered = True
+            self._started = True
+            self._dispatcher.start()
+            self._condition.notify_all()
+
+    def notify(self) -> None:
+        with self._condition:
+            self._condition.notify_all()
+
+    def dispatch_once(self) -> int:
+        with self._condition:
+            if self._stopping:
+                return 0
+            settings = self.store.get_runtime_settings()
+            capacity = max(
+                0,
+                settings.analysis_concurrency_limit - len(self._active),
+            )
+            submitted = 0
+            for _ in range(capacity):
+                run = self.store.claim_next_analysis_run()
+                if run is None:
+                    break
+                self._submit_claimed(run)
+                submitted += 1
+            return submitted
+
+    def _dispatch_loop(self) -> None:
+        while True:
+            with self._condition:
+                if self._stopping:
+                    return
+            submitted = self.dispatch_once()
+            with self._condition:
+                if self._stopping:
+                    return
+                self._condition.wait(timeout=0.05 if submitted else 0.5)
+
+    def _submit_claimed(self, run: dict[str, Any]) -> Future:
+        run_id = str(run["id"])
+        future = self.executor.submit(self._execute_claimed, run)
+        self._active[run_id] = future
+        future.add_done_callback(
+            lambda finished, current_run_id=run_id: self._finished(
+                current_run_id,
+                finished,
+            )
+        )
+        return future
+
+    def _finished(self, run_id: str, future: Future) -> None:
+        with self._condition:
+            self._active.pop(str(run_id), None)
+            self._condition.notify_all()
 
     def submit(self, run_id: str) -> Future:
-        with self._lock:
-            existing = self._futures.get(str(run_id))
+        with self._condition:
+            existing = self._active.get(str(run_id))
             if existing is not None and not existing.done():
                 return existing
-            future = self.executor.submit(self._execute, str(run_id))
-            self._futures[str(run_id)] = future
-            return future
+            run = self.store.claim_analysis_run(str(run_id))
+            if run is None:
+                completed = Future()
+                completed.set_result(None)
+                return completed
+            return self._submit_claimed(run)
 
     def recover(self) -> list[Future]:
-        self.store.mark_interrupted_runs_failed()
-        return [self.submit(run["id"]) for run in self.store.list_queued_analysis_runs()]
+        self.start()
+        self.dispatch_once()
+        with self._condition:
+            return list(self._active.values())
 
     def shutdown(self, wait: bool = True) -> None:
+        with self._condition:
+            self._stopping = True
+            self._condition.notify_all()
+        if self._dispatcher.is_alive():
+            self._dispatcher.join(timeout=5)
         self.executor.shutdown(wait=wait, cancel_futures=False)
 
-    def _execute(self, run_id: str) -> None:
-        run = self.store.claim_analysis_run(run_id)
-        if run is None:
-            return
-
+    def _execute_claimed(self, run: dict[str, Any]) -> None:
+        run_id = str(run["id"])
         request = AnalysisRequest(
             ticker=run["ticker"],
             trade_date=run["trade_date"],
@@ -140,5 +218,5 @@ class AnalysisTaskService:
             self.store.fail_analysis_run(run_id, "ProtocolError", message)
 
 
-def create_task_service(store: AdminStore) -> AnalysisTaskService:
+def create_task_service(store: ApplicationStore) -> AnalysisTaskService:
     return AnalysisTaskService(store)

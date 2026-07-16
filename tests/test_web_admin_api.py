@@ -10,6 +10,9 @@ from tradingagents.web.task_service import AnalysisTaskService
 
 
 class FakeTaskService:
+    def notify(self):
+        return None
+
     def submit(self, run_id):
         return None
 

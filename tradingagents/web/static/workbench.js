@@ -69,6 +69,11 @@
   const state = {
     view: 'analysis',
     theme: localStorage.getItem('ta_theme') || 'dark',
+    runtime: { runtime: 'local', auth: 'local' },
+    cloudbaseApp: null,
+    cloudbaseAuth: null,
+    accessToken: '',
+    currentUser: null,
     adminToken: localStorage.getItem('ta_admin_token') || '',
     adminPasswordConfigured: false,
     identityEmail: localStorage.getItem('ta_identity_email') || '',
@@ -93,8 +98,11 @@
     adminPane: 'models',
     adminModels: [],
     adminWhitelist: [],
+    adminUsers: [],
+    runtimeSettings: null,
     selectedModelId: null,
-    selectedWhitelistEmail: ''
+    selectedWhitelistEmail: '',
+    selectedUserUid: ''
   };
 
   // Pipeline order for the Agent team board (analysts first, then managers).
@@ -159,20 +167,31 @@
   }
 
   function updateIdentitySummary() {
-    const isAdmin = Boolean(state.adminToken);
-    const summary = isAdmin ? '本地管理员' : state.identityEmail || '未设置邮箱';
+    const cloudbase = state.runtime.auth === 'cloudbase';
+    const isAdmin = cloudbase ? Boolean(state.currentUser?.is_admin) : Boolean(state.adminToken);
+    const cloudIdentity = state.currentUser?.email || state.currentUser?.uid || '';
+    const summary = cloudbase
+      ? cloudIdentity || '未登录'
+      : isAdmin ? '本地管理员' : state.identityEmail || '未设置邮箱';
     setText('#identity-summary', summary);
     const summaryNode = qs('#identity-summary');
     if (summaryNode) summaryNode.title = summary;
     const stateNodes = [qs('#identity-state'), qs('#identity-modal-state')].filter(Boolean);
     stateNodes.forEach(node => {
-      node.className = `dot-badge ${isAdmin || state.identityEmail ? 'active' : 'pending'}`;
-      node.textContent = isAdmin ? '已授权' : state.identityEmail ? '已设置' : '未设置';
+      node.className = `dot-badge ${isAdmin || cloudIdentity || state.identityEmail ? 'active' : 'pending'}`;
+      node.textContent = cloudbase
+        ? cloudIdentity ? (isAdmin ? '管理员' : '已登录') : '未登录'
+        : isAdmin ? '已授权' : state.identityEmail ? '已设置' : '未设置';
     });
     setText(
       '#identity-modal-status',
-      isAdmin ? '管理员模式下无需邮箱白名单' : state.identityEmail ? `当前使用 ${state.identityEmail}` : '尚未保存访问邮箱'
+      cloudbase
+        ? cloudIdentity ? `CloudBase 用户：${cloudIdentity}` : '请登录 CloudBase'
+        : isAdmin ? '管理员模式下无需邮箱白名单' : state.identityEmail ? `当前使用 ${state.identityEmail}` : '尚未保存访问邮箱'
     );
+    const identityButton = qs('#open-identity-modal');
+    if (identityButton) identityButton.textContent = cloudbase ? (cloudIdentity ? '退出' : '登录') : '更改';
+    setText('#identity-title', cloudbase ? 'CloudBase 登录身份' : '本地访问身份');
     updateTopbarContext();
   }
 
@@ -188,10 +207,14 @@
     if (state.view === 'analysis') {
       context.hidden = true;
     } else if (state.view === 'reports') {
-      const owner = state.adminToken ? '管理员视图' : state.identityEmail || '当前用户';
+      const owner = state.currentUser?.is_admin || state.adminToken
+        ? '管理员视图'
+        : state.currentUser?.email || state.identityEmail || '当前用户';
       context.textContent = `${owner} · ${state.history.length} 份报告`;
     } else {
-      context.textContent = state.adminToken ? '本地开发 · 管理员已授权' : '需要管理员登录';
+      context.textContent = isAdminSession()
+        ? `${state.runtime.runtime === 'cloudbase' ? 'CloudBase' : '本地开发'} · 管理员已授权`
+        : '需要管理员登录';
     }
   }
 
@@ -208,19 +231,151 @@
 
   function identityQuery() {
     const params = new URLSearchParams();
+    if (state.runtime.auth === 'cloudbase') return params;
     if (state.identityEmail) params.set('access_email', state.identityEmail);
     return params;
   }
 
-  function adminHeaders() {
+  function authHeaders() {
+    if (state.accessToken) {
+      return { 'Content-Type': 'application/json', Authorization: `Bearer ${state.accessToken}` };
+    }
     const headers = { 'Content-Type': 'application/json' };
     if (state.adminToken) headers.Authorization = `Bearer ${state.adminToken}`;
     return headers;
   }
 
+  function adminHeaders() {
+    return authHeaders();
+  }
+
+  function isAdminSession() {
+    return state.runtime.auth === 'cloudbase'
+      ? Boolean(state.currentUser?.is_admin)
+      : Boolean(state.adminToken);
+  }
+
+  async function loadRuntimeConfig() {
+    state.runtime = await apiJson('/api/runtime-config');
+    return state.runtime;
+  }
+
+  function loadCloudBaseSdk(url) {
+    if (window.cloudbase) return Promise.resolve(window.cloudbase);
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-cloudbase-sdk]');
+      if (existing) {
+        existing.addEventListener('load', () => resolve(window.cloudbase), { once: true });
+        existing.addEventListener('error', () => reject(new Error('CloudBase SDK 加载失败')), { once: true });
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+      script.dataset.cloudbaseSdk = 'true';
+      script.onload = () => window.cloudbase ? resolve(window.cloudbase) : reject(new Error('CloudBase SDK 未初始化'));
+      script.onerror = () => reject(new Error('CloudBase SDK 加载失败'));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function initializeCloudBase() {
+    const cloudbase = await loadCloudBaseSdk(state.runtime.sdk_url);
+    state.cloudbaseApp = cloudbase.init({
+      env: state.runtime.env_id,
+      region: state.runtime.region,
+      accessKey: state.runtime.publishable_key
+    });
+    state.cloudbaseAuth = typeof state.cloudbaseApp.auth === 'function'
+      ? state.cloudbaseApp.auth()
+      : state.cloudbaseApp.auth;
+    if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 初始化失败');
+  }
+
+  function openCloudBaseAuthModal(message = '') {
+    const modal = qs('#cloudbase-auth-modal');
+    if (modal) modal.hidden = false;
+    setStatus('#cloudbase-auth-status', message, message ? false : undefined);
+    setTimeout(() => qs('#cloudbase-username')?.focus(), 0);
+  }
+
+  function closeCloudBaseAuthModal() {
+    const modal = qs('#cloudbase-auth-modal');
+    if (modal) modal.hidden = true;
+  }
+
+  async function restoreCloudBaseSession() {
+    if (!state.cloudbaseAuth) return false;
+    try {
+      if (typeof state.cloudbaseAuth.getSession === 'function') {
+        const sessionResult = await state.cloudbaseAuth.getSession();
+        if (sessionResult?.error) throw new Error(sessionResult.error.message || '登录态读取失败');
+        const session = sessionResult?.data?.session || sessionResult?.data || sessionResult?.session;
+        if (!session) return false;
+      } else if (typeof state.cloudbaseAuth.getLoginState === 'function') {
+        const loginState = await state.cloudbaseAuth.getLoginState();
+        if (!loginState || loginState.loginType === 'ANONYMOUS') return false;
+      }
+      const tokenResult = await state.cloudbaseAuth.getAccessToken();
+      state.accessToken = tokenResult?.accessToken || tokenResult?.data?.accessToken || '';
+      if (!state.accessToken) return false;
+      const session = await apiJson('/api/session', { headers: authHeaders() });
+      state.currentUser = session.user || null;
+      setAdminAvailable(Boolean(state.currentUser?.is_admin));
+      updateIdentitySummary();
+      closeCloudBaseAuthModal();
+      return true;
+    } catch (err) {
+      state.accessToken = '';
+      state.currentUser = null;
+      setAdminAvailable(false);
+      return false;
+    }
+  }
+
+  async function signInCloudBase(username, password) {
+    if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 尚未初始化');
+    const result = typeof state.cloudbaseAuth.signInWithPassword === 'function'
+      ? await state.cloudbaseAuth.signInWithPassword({ username, password })
+      : await state.cloudbaseAuth.signIn({ username, password });
+    if (result?.error) throw new Error(result.error.message || '登录失败');
+    if (!await restoreCloudBaseSession()) throw new Error('账号未启用或没有访问权限');
+  }
+
+  async function submitCloudBaseLogin() {
+    const username = qs('#cloudbase-username')?.value.trim() || '';
+    const password = qs('#cloudbase-password')?.value || '';
+    if (!username || !password) {
+      setStatus('#cloudbase-auth-status', '请输入账号和密码', false);
+      return;
+    }
+    setStatus('#cloudbase-auth-status', '正在登录…', undefined);
+    try {
+      await signInCloudBase(username, password);
+      if (qs('#cloudbase-password')) qs('#cloudbase-password').value = '';
+      await restoreActiveRun();
+      if (state.view === 'reports') await loadReportHistory();
+    } catch (err) {
+      setStatus('#cloudbase-auth-status', `登录失败：${err.message}`, false);
+    }
+  }
+
+  async function signOutCloudBase() {
+    try {
+      if (state.cloudbaseAuth?.signOut) await state.cloudbaseAuth.signOut();
+    } finally {
+      state.accessToken = '';
+      state.currentUser = null;
+      setAdminAvailable(false);
+      updateIdentitySummary();
+      showView('analysis');
+      openCloudBaseAuthModal();
+    }
+  }
+
   function persistAdminSession(token) {
     state.adminToken = token || '';
-    if (state.adminToken) {
+    if (state.runtime.auth === 'local' && state.adminToken) {
       localStorage.setItem('ta_admin_token', state.adminToken);
       document.cookie = `ta_admin=${encodeURIComponent(state.adminToken)}; Path=/; SameSite=Lax`;
     } else {
@@ -232,6 +387,11 @@
   }
 
   async function apiJson(url, options = {}) {
+    if (state.runtime.auth === 'cloudbase' && state.cloudbaseAuth && state.accessToken && options.headers) {
+      const tokenResult = await state.cloudbaseAuth.getAccessToken();
+      state.accessToken = tokenResult?.accessToken || tokenResult?.data?.accessToken || state.accessToken;
+      options = { ...options, headers: { ...options.headers, Authorization: `Bearer ${state.accessToken}` } };
+    }
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -254,7 +414,9 @@
   }
 
   function setAdminAvailable(available) {
-    document.querySelectorAll('.nav-admin').forEach(button => { button.hidden = false; });
+    document.querySelectorAll('.nav-admin').forEach(button => {
+      button.hidden = state.runtime.auth === 'cloudbase' ? !available : false;
+    });
     updateIdentitySummary();
   }
 
@@ -298,8 +460,12 @@
   }
 
   function openAdminEntry() {
-    if (state.adminToken) {
+    if (isAdminSession()) {
       showView('admin');
+      return;
+    }
+    if (state.runtime.auth === 'cloudbase') {
+      openCloudBaseAuthModal('需要管理员账号登录');
       return;
     }
     openAdminModal();
@@ -1263,7 +1429,7 @@
       open.querySelector('.ho-name').textContent = item.stock_name ? ` · ${item.stock_name}` : '';
       const badge = decisionBadgeHtml(item.decision);
       open.querySelector('.ho-top').insertAdjacentHTML('beforeend', badge || '<span class="tag">已归档</span>');
-      const owner = state.adminToken
+      const owner = isAdminSession()
         ? item.owner_email || item.owner_uid || '历史未归属'
         : '';
       const tradeDate = item.trade_date || (item.created_at || '').slice(0, 10) || '未知';
@@ -1308,7 +1474,7 @@
     setText('#history-detail-name', report.stock_name || '');
     const moduleCount = (report.analysts || []).length;
     const created = formatEventTime(report.created_at);
-    const owner = state.adminToken ? report.owner_email || report.owner_uid || '' : '';
+    const owner = isAdminSession() ? report.owner_email || report.owner_uid || '' : '';
     setText('#history-detail-meta', [
       `分析日 ${report.trade_date || '未知'}`,
       created ? `${created} 归档` : '',
@@ -1349,7 +1515,8 @@
   function renderAdminWorkspace() {
     const root = qs('#admin-root');
     if (!root) return;
-    if (!state.adminToken) {
+    if (!isAdminSession()) {
+      const cloudbase = state.runtime.auth === 'cloudbase';
       root.innerHTML = `
         <section class="panel admin-login-panel">
           <div class="panel-header">
@@ -1357,14 +1524,15 @@
             <p>需要管理员登录</p>
           </div>
           <div class="panel-body">
-            <p class="helper-text">登录后可管理模型配置与访问白名单。本地管理员会话保存在当前浏览器。</p>
+            <p class="helper-text">${cloudbase ? '请使用已被授予 admin 角色的 CloudBase 账号登录。' : '登录后可管理模型配置与访问白名单。本地管理员会话保存在当前浏览器。'}</p>
             <button type="button" id="admin-login-from-view">管理员登录</button>
           </div>
         </section>
       `;
-      qs('#admin-login-from-view')?.addEventListener('click', openAdminModal);
+      qs('#admin-login-from-view')?.addEventListener('click', openAdminEntry);
       return;
     }
+    const cloudbase = state.runtime.auth === 'cloudbase';
     const providerOptions = Object.entries(PROVIDER_PRESETS)
       .map(([value, preset]) => `<option value="${value}">${preset.label}</option>`)
       .join('');
@@ -1373,7 +1541,10 @@
         <div class="admin-commandbar">
           <div class="admin-tabs" role="tablist" aria-label="后台配置类型">
             <button class="admin-tab ${state.adminPane === 'models' ? 'active' : ''}" type="button" data-admin-pane="models">模型管理</button>
-            <button class="admin-tab ${state.adminPane === 'whitelist' ? 'active' : ''}" type="button" data-admin-pane="whitelist">白名单</button>
+            ${cloudbase
+              ? `<button class="admin-tab ${state.adminPane === 'users' ? 'active' : ''}" type="button" data-admin-pane="users">用户管理</button>`
+              : `<button class="admin-tab ${state.adminPane === 'whitelist' ? 'active' : ''}" type="button" data-admin-pane="whitelist">白名单</button>`}
+            <button class="admin-tab ${state.adminPane === 'runtime' ? 'active' : ''}" type="button" data-admin-pane="runtime">运行设置</button>
           </div>
           <div class="admin-session-inline">
             <span class="state-pill done">管理员已登录</span>
@@ -1451,6 +1622,49 @@
             </div>
           </section>
         </div>
+
+        <div class="admin-pane ${state.adminPane === 'users' ? 'active' : ''}" data-admin-content="users">
+          <section class="panel admin-list-panel">
+            <div class="panel-header">
+              <div><h3>CloudBase 用户</h3><span class="admin-count" id="user-count">加载中</span></div>
+              <div class="admin-header-actions">
+                <button class="icon-button history-refresh" type="button" data-reload-admin aria-label="刷新用户" title="刷新">↻</button>
+                <button class="secondary-button compact-button" type="button" id="new-app-user">新增用户</button>
+              </div>
+            </div>
+            <div class="table-wrap" id="user-list"><div class="empty-state">加载中…</div></div>
+          </section>
+          <section class="panel admin-editor-panel">
+            <div class="panel-header"><h3 id="user-editor-title">新增用户</h3><span class="dot-badge pending" id="user-editor-tag">待录入</span></div>
+            <div class="admin-editor-form">
+              <div class="admin-field full"><label for="user-uid">CloudBase UID</label><input id="user-uid" autocomplete="off"></div>
+              <div class="admin-field"><label for="user-email">邮箱</label><input id="user-email" type="email" autocomplete="off"></div>
+              <div class="admin-field"><label for="user-display-name">显示名称</label><input id="user-display-name" autocomplete="off"></div>
+              <div class="admin-field"><label for="user-role">角色</label><select id="user-role"><option value="user">普通用户</option><option value="admin">管理员</option></select></div>
+              <div class="admin-field"><label for="user-status">状态</label><select id="user-status"><option value="active">启用</option><option value="disabled">禁用</option></select></div>
+              <div class="admin-field"><label for="user-daily-limit">每日次数</label><input id="user-daily-limit" type="number" min="0" value="5"></div>
+              <div class="status-box admin-field full" id="user-status-message"></div>
+              <div class="admin-editor-actions">
+                <button class="secondary-button danger-button" type="button" id="delete-app-user" hidden>删除用户</button>
+                <button type="button" id="save-app-user">保存用户</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="admin-pane ${state.adminPane === 'runtime' ? 'active' : ''}" data-admin-content="runtime">
+          <section class="panel admin-editor-panel">
+            <div class="panel-header"><h3>任务运行设置</h3><span class="tag">保存后立即生效</span></div>
+            <div class="admin-editor-form">
+              <div class="admin-field"><label for="runtime-concurrency">同时执行任务数</label><input id="runtime-concurrency" type="number" min="1" max="8"></div>
+              <div class="admin-field"><label for="runtime-queue-limit">最大排队任务数</label><input id="runtime-queue-limit" type="number" min="1" max="200"></div>
+              <div class="admin-field full admin-toggle-row"><label class="toggle-option"><input id="runtime-accepting" type="checkbox">允许用户提交新任务</label></div>
+              <p class="helper-text admin-field full">调低并发不会中止正在执行的任务；后续任务按新的并发上限调度。</p>
+              <div class="status-box admin-field full" id="runtime-status"></div>
+              <div class="admin-editor-actions"><button type="button" id="save-runtime-settings">保存运行设置</button></div>
+            </div>
+          </section>
+        </div>
       </div>
     `;
     qs('#admin-logout')?.addEventListener('click', logoutAdmin);
@@ -1458,21 +1672,32 @@
     root.querySelectorAll('[data-reload-admin]').forEach(button => button.addEventListener('click', loadAdminData));
     qs('#new-model-config')?.addEventListener('click', clearModelEditor);
     qs('#new-whitelist')?.addEventListener('click', clearWhitelistEditor);
+    qs('#new-app-user')?.addEventListener('click', clearAppUserEditor);
     qs('#fetch-model-catalog')?.addEventListener('click', fetchModelCatalog);
     qs('#save-model-config')?.addEventListener('click', saveModelConfig);
     qs('#set-default-model')?.addEventListener('click', setDefaultModel);
     qs('#delete-model-config')?.addEventListener('click', deleteModelConfig);
     qs('#save-whitelist')?.addEventListener('click', saveWhitelist);
     qs('#delete-whitelist')?.addEventListener('click', deleteWhitelist);
+    qs('#save-app-user')?.addEventListener('click', saveAppUser);
+    qs('#delete-app-user')?.addEventListener('click', deleteAppUser);
+    qs('#save-runtime-settings')?.addEventListener('click', saveRuntimeSettings);
     qs('#model-provider')?.addEventListener('change', () => applyProviderPreset(true));
     applyProviderPreset();
     loadAdminData().catch(err => {
-      setStatus(state.adminPane === 'models' ? '#model-status' : '#whitelist-status', `加载失败：${err.message}`, false);
+      const statusTarget = state.adminPane === 'models'
+        ? '#model-status'
+        : state.adminPane === 'whitelist' ? '#whitelist-status'
+          : state.adminPane === 'users' ? '#user-status-message' : '#runtime-status';
+      setStatus(statusTarget, `加载失败：${err.message}`, false);
     });
   }
 
   function switchAdminPane(pane) {
-    state.adminPane = pane === 'whitelist' ? 'whitelist' : 'models';
+    const allowed = state.runtime.auth === 'cloudbase'
+      ? ['models', 'users', 'runtime']
+      : ['models', 'whitelist', 'runtime'];
+    state.adminPane = allowed.includes(pane) ? pane : 'models';
     document.querySelectorAll('.admin-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.adminPane === state.adminPane));
     document.querySelectorAll('.admin-pane').forEach(panel => panel.classList.toggle('active', panel.dataset.adminContent === state.adminPane));
     if (state.view === 'admin') {
@@ -1555,7 +1780,11 @@
     }
   }
 
-  function logoutAdmin() {
+  async function logoutAdmin() {
+    if (state.runtime.auth === 'cloudbase') {
+      await signOutCloudBase();
+      return;
+    }
     persistAdminSession('');
     renderAdminWorkspace();
   }
@@ -1617,35 +1846,52 @@
   }
 
   async function loadAdminData() {
-    if (!state.adminToken) return;
-    const [models, whitelist] = await Promise.all([
+    if (!isAdminSession()) return;
+    const accessRequest = state.runtime.auth === 'cloudbase'
+      ? apiJson('/api/admin/users', { headers: adminHeaders() })
+      : apiJson('/api/admin/whitelist', { headers: adminHeaders() });
+    const [models, access, runtime] = await Promise.all([
       apiJson('/api/admin/model-configs', { headers: adminHeaders() }),
-      apiJson('/api/admin/whitelist', { headers: adminHeaders() })
+      accessRequest,
+      apiJson('/api/admin/runtime-settings', { headers: adminHeaders() })
     ]);
     state.adminModels = models.items || [];
-    state.adminWhitelist = whitelist.items || [];
+    state.runtimeSettings = runtime.settings || null;
+    if (state.runtime.auth === 'cloudbase') state.adminUsers = access.items || [];
+    else state.adminWhitelist = access.items || [];
     if (state.selectedModelId && !state.adminModels.some(item => item.id === state.selectedModelId)) state.selectedModelId = null;
     if (state.selectedWhitelistEmail && !state.adminWhitelist.some(item => item.email === state.selectedWhitelistEmail)) state.selectedWhitelistEmail = '';
     if (!state.selectedModelId && state.adminModels.length) state.selectedModelId = state.adminModels[0].id;
     if (!state.selectedWhitelistEmail && state.adminWhitelist.length) state.selectedWhitelistEmail = state.adminWhitelist[0].email;
+    if (state.selectedUserUid && !state.adminUsers.some(item => item.uid === state.selectedUserUid)) state.selectedUserUid = '';
+    if (!state.selectedUserUid && state.adminUsers.length) state.selectedUserUid = state.adminUsers[0].uid;
     renderAdminLists();
     if (state.selectedModelId) fillModelEditor(state.adminModels.find(item => item.id === state.selectedModelId));
     else clearModelEditor();
     if (state.selectedWhitelistEmail) fillWhitelistEditor(state.adminWhitelist.find(item => item.email === state.selectedWhitelistEmail));
     else clearWhitelistEditor();
+    if (state.selectedUserUid) fillAppUserEditor(state.adminUsers.find(item => item.uid === state.selectedUserUid));
+    else clearAppUserEditor();
+    fillRuntimeSettings();
   }
 
   function renderAdminLists() {
     const modelList = qs('#model-list');
     const whitelistList = qs('#whitelist-list');
+    const userList = qs('#user-list');
     if (modelList) modelList.innerHTML = renderAdminModels(state.adminModels);
     if (whitelistList) whitelistList.innerHTML = renderWhitelist(state.adminWhitelist);
+    if (userList) userList.innerHTML = renderAppUsers(state.adminUsers);
     setText('#model-count', `${state.adminModels.filter(item => item.enabled).length} 个可用配置`);
     const activeCount = state.adminWhitelist.filter(item => item.status === 'active').length;
     const pendingCount = state.adminWhitelist.filter(item => item.status === 'pending').length;
     setText('#whitelist-count', `${activeCount} 个启用 · ${pendingCount} 个待确认`);
+    const enabledUsers = state.adminUsers.filter(item => item.status === 'active').length;
+    const adminUsers = state.adminUsers.filter(item => item.role === 'admin').length;
+    setText('#user-count', `${enabledUsers} 个启用 · ${adminUsers} 个管理员`);
     qs('#model-list')?.querySelectorAll('[data-model-id]').forEach(row => row.addEventListener('click', () => selectModel(Number(row.dataset.modelId))));
     qs('#whitelist-list')?.querySelectorAll('[data-whitelist-email]').forEach(row => row.addEventListener('click', () => selectWhitelist(row.dataset.whitelistEmail)));
+    qs('#user-list')?.querySelectorAll('[data-user-uid]').forEach(row => row.addEventListener('click', () => selectAppUser(row.dataset.userUid)));
   }
 
   function renderAdminModels(items) {
@@ -1662,6 +1908,113 @@
     return `<table class="data-table admin-whitelist-table"><thead><tr><th>邮箱</th><th>UID</th><th>状态</th><th>每日次数</th><th>备注</th></tr></thead><tbody>${
       items.map(item => `<tr class="selectable ${item.email === state.selectedWhitelistEmail ? 'selected' : ''}" data-whitelist-email="${escapeHtml(item.email)}"><td>${escapeHtml(item.email)}</td><td class="mono">${escapeHtml(item.uid || '')}</td><td><span class="dot-badge ${escapeHtml(item.status)}">${escapeHtml(WL_STATUS_LABEL[item.status] || item.status)}</span></td><td class="num">${escapeHtml(item.daily_limit)}</td><td>${escapeHtml(item.note || '')}</td></tr>`).join('')
     }</tbody></table>`;
+  }
+
+  function renderAppUsers(items) {
+    if (!items.length) return '<div class="empty-state">暂无 CloudBase 用户</div>';
+    return `<table class="data-table admin-whitelist-table"><thead><tr><th>UID</th><th>邮箱</th><th>显示名称</th><th>角色</th><th>状态</th><th>每日次数</th></tr></thead><tbody>${
+      items.map(item => `<tr class="selectable ${item.uid === state.selectedUserUid ? 'selected' : ''}" data-user-uid="${escapeHtml(item.uid)}"><td class="mono">${escapeHtml(item.uid)}</td><td>${escapeHtml(item.email || '')}</td><td>${escapeHtml(item.display_name || '')}</td><td><span class="tag ${item.role === 'admin' ? 'accent' : ''}">${item.role === 'admin' ? '管理员' : '普通用户'}</span></td><td><span class="dot-badge ${item.status === 'active' ? 'active' : 'blocked'}">${item.status === 'active' ? '启用' : '禁用'}</span></td><td class="num">${escapeHtml(item.daily_limit)}</td></tr>`).join('')
+    }</tbody></table>`;
+  }
+
+  function selectAppUser(uid) {
+    state.selectedUserUid = uid;
+    renderAdminLists();
+    fillAppUserEditor(state.adminUsers.find(item => item.uid === uid));
+  }
+
+  function clearAppUserEditor() {
+    state.selectedUserUid = '';
+    renderAdminLists();
+    setText('#user-editor-title', '新增用户');
+    const tag = qs('#user-editor-tag');
+    if (tag) { tag.textContent = '待录入'; tag.className = 'dot-badge pending'; }
+    if (qs('#user-uid')) { qs('#user-uid').value = ''; qs('#user-uid').readOnly = false; }
+    if (qs('#user-email')) qs('#user-email').value = '';
+    if (qs('#user-display-name')) qs('#user-display-name').value = '';
+    if (qs('#user-role')) qs('#user-role').value = 'user';
+    if (qs('#user-status')) qs('#user-status').value = 'active';
+    if (qs('#user-daily-limit')) qs('#user-daily-limit').value = '5';
+    qs('#delete-app-user')?.setAttribute('hidden', '');
+    setStatus('#user-status-message', '', undefined);
+  }
+
+  function fillAppUserEditor(item) {
+    if (!item) return clearAppUserEditor();
+    state.selectedUserUid = item.uid;
+    setText('#user-editor-title', '编辑用户');
+    const tag = qs('#user-editor-tag');
+    if (tag) { tag.textContent = item.role === 'admin' ? '管理员' : '普通用户'; tag.className = `dot-badge ${item.status === 'active' ? 'active' : 'blocked'}`; }
+    qs('#user-uid').value = item.uid || '';
+    qs('#user-uid').readOnly = true;
+    qs('#user-email').value = item.email || '';
+    qs('#user-display-name').value = item.display_name || '';
+    qs('#user-role').value = item.role || 'user';
+    qs('#user-status').value = item.status || 'active';
+    qs('#user-daily-limit').value = String(item.daily_limit ?? 5);
+    qs('#delete-app-user').hidden = false;
+    setStatus('#user-status-message', '', undefined);
+  }
+
+  async function saveAppUser() {
+    try {
+      const result = await apiJson('/api/admin/users', {
+        method: 'POST',
+        headers: adminHeaders(),
+        body: JSON.stringify({
+          uid: qs('#user-uid')?.value.trim() || '',
+          email: qs('#user-email')?.value.trim() || '',
+          display_name: qs('#user-display-name')?.value.trim() || '',
+          role: qs('#user-role')?.value || 'user',
+          status: qs('#user-status')?.value || 'active',
+          daily_limit: Number(qs('#user-daily-limit')?.value || 5)
+        })
+      });
+      state.selectedUserUid = result.item?.uid || state.selectedUserUid;
+      await loadAdminData();
+      setStatus('#user-status-message', '用户配置已保存', true);
+    } catch (err) {
+      setStatus('#user-status-message', `保存失败：${err.message}`, false);
+    }
+  }
+
+  async function deleteAppUser() {
+    if (!state.selectedUserUid || (typeof confirm === 'function' && !confirm('确认删除这个用户？'))) return;
+    try {
+      await apiJson(`/api/admin/users/${encodeURIComponent(state.selectedUserUid)}`, { method: 'DELETE', headers: adminHeaders() });
+      state.selectedUserUid = '';
+      await loadAdminData();
+    } catch (err) {
+      setStatus('#user-status-message', `删除失败：${err.message}`, false);
+    }
+  }
+
+  function fillRuntimeSettings() {
+    const settings = state.runtimeSettings;
+    if (!settings || !qs('#runtime-concurrency')) return;
+    qs('#runtime-concurrency').value = String(settings.analysis_concurrency_limit ?? 2);
+    qs('#runtime-queue-limit').value = String(settings.analysis_queue_limit ?? 20);
+    qs('#runtime-accepting').checked = Boolean(settings.accept_new_tasks);
+    setStatus('#runtime-status', settings.warning || '', settings.warning ? false : undefined);
+  }
+
+  async function saveRuntimeSettings() {
+    try {
+      const result = await apiJson('/api/admin/runtime-settings', {
+        method: 'PUT',
+        headers: adminHeaders(),
+        body: JSON.stringify({
+          analysis_concurrency_limit: Number(qs('#runtime-concurrency')?.value || 2),
+          analysis_queue_limit: Number(qs('#runtime-queue-limit')?.value || 20),
+          accept_new_tasks: Boolean(qs('#runtime-accepting')?.checked)
+        })
+      });
+      state.runtimeSettings = result.settings || null;
+      fillRuntimeSettings();
+      setStatus('#runtime-status', '运行设置已保存并通知调度器', true);
+    } catch (err) {
+      setStatus('#runtime-status', `保存失败：${err.message}`, false);
+    }
   }
 
   function selectModel(id) {
@@ -1770,13 +2123,10 @@
     } catch (err) { setStatus('#whitelist-status', `移除失败：${err.message}`, false); }
   }
 
-  function boot() {
+  async function boot() {
     const params = new URLSearchParams(location.search);
     const requestedView = params.get('view') || state.view;
     const requestedAdminPane = params.get('adminPane');
-    if (requestedAdminPane === 'models' || requestedAdminPane === 'whitelist') {
-      state.adminPane = requestedAdminPane;
-    }
     applyTheme(state.theme);
     if (state.identityEmail && qs('#identity-email')) qs('#identity-email').value = state.identityEmail;
     updateIdentitySummary();
@@ -1784,7 +2134,15 @@
       button.addEventListener('click', () => showView(button.dataset.view));
     });
     qs('#theme-toggle')?.addEventListener('click', toggleTheme);
-    qs('#open-identity-modal')?.addEventListener('click', openIdentityModal);
+    qs('#open-identity-modal')?.addEventListener('click', () => {
+      if (state.runtime.auth !== 'cloudbase') {
+        openIdentityModal();
+      } else if (state.currentUser) {
+        signOutCloudBase();
+      } else {
+        openCloudBaseAuthModal();
+      }
+    });
     qs('#close-identity-modal')?.addEventListener('click', closeIdentityModal);
     qs('#cancel-identity-modal')?.addEventListener('click', closeIdentityModal);
     qs('#save-identity')?.addEventListener('click', saveIdentity);
@@ -1792,30 +2150,56 @@
       if (event.key === 'Enter') saveIdentity();
     });
     qs('#close-admin-modal')?.addEventListener('click', closeAdminModal);
+    qs('#close-cloudbase-auth-modal')?.addEventListener('click', closeCloudBaseAuthModal);
+    qs('#cloudbase-sign-in')?.addEventListener('click', submitCloudBaseLogin);
+    qs('#cloudbase-password')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') submitCloudBaseLogin();
+    });
     document.querySelectorAll('.modal-backdrop').forEach(modal => {
       modal.addEventListener('click', event => {
         if (event.target !== modal) return;
         if (modal.id === 'identity-modal') closeIdentityModal();
         if (modal.id === 'admin-modal') closeAdminModal();
+        if (modal.id === 'cloudbase-auth-modal') closeCloudBaseAuthModal();
       });
     });
     document.addEventListener('keydown', event => {
       if (event.key !== 'Escape') return;
       if (!qs('#identity-modal')?.hidden) closeIdentityModal();
       if (!qs('#admin-modal')?.hidden) closeAdminModal();
+      if (!qs('#cloudbase-auth-modal')?.hidden) closeCloudBaseAuthModal();
     });
     window.addEventListener('resize', focusCurrentAgent);
 
+    let sessionReady = true;
+    try {
+      await loadRuntimeConfig();
+      if (state.runtime.auth === 'cloudbase') {
+        state.adminToken = '';
+        const identityModal = qs('#identity-modal');
+        if (identityModal) identityModal.hidden = true;
+        await initializeCloudBase();
+        sessionReady = await restoreCloudBaseSession();
+        if (!sessionReady) openCloudBaseAuthModal();
+      } else {
+        await refreshAdminStatus();
+      }
+    } catch (err) {
+      sessionReady = false;
+      setText('#identity-summary', `初始化失败：${err.message}`);
+      if (state.runtime.auth === 'cloudbase') openCloudBaseAuthModal(`初始化失败：${err.message}`);
+    }
+    const allowedAdminPanes = state.runtime.auth === 'cloudbase'
+      ? ['models', 'users', 'runtime']
+      : ['models', 'whitelist', 'runtime'];
+    if (allowedAdminPanes.includes(requestedAdminPane)) state.adminPane = requestedAdminPane;
+    updateIdentitySummary();
     renderAnalysisWorkspace();
     renderReportCenter();
     renderAdminWorkspace();
-    refreshAdminStatus()
-      .catch(err => {
-        setText('#identity-summary', `后台状态读取失败：${err.message}`);
-      })
-      .finally(() => restoreActiveRun());
+    if (sessionReady) restoreActiveRun();
     showView(requestedView);
-    if (params.get('identity') === 'edit') openIdentityModal();
+    if (params.get('identity') === 'edit' && state.runtime.auth === 'local') openIdentityModal();
   }
 
   window.TradingAgentsWorkbench = {
@@ -1823,6 +2207,9 @@
     showView,
     identityQuery,
     adminHeaders,
+    loadRuntimeConfig,
+    restoreCloudBaseSession,
+    signInCloudBase,
     persistAdminSession,
     refreshAdminStatus,
     logoutAdmin,

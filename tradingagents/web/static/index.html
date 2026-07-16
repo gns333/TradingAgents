@@ -103,6 +103,30 @@
     </section>
   </div>
 
+  <div class="modal-backdrop" id="cloudbase-auth-modal" hidden>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="cloudbase-auth-title">
+      <div class="modal-header">
+        <h2 id="cloudbase-auth-title">登录 TradingAgents</h2>
+        <button class="icon-button" type="button" id="close-cloudbase-auth-modal" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="helper-text">使用 CloudBase 中已启用的账号登录。登录身份和管理员角色均由服务端校验。</p>
+        <div>
+          <label for="cloudbase-username">账号</label>
+          <input id="cloudbase-username" autocomplete="username" placeholder="邮箱、手机号或用户名">
+        </div>
+        <div>
+          <label for="cloudbase-password">密码</label>
+          <input id="cloudbase-password" type="password" autocomplete="current-password">
+        </div>
+        <div class="form-status" id="cloudbase-auth-status" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button type="button" id="cloudbase-sign-in">登录</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <script src="/assets/workbench.js" defer></script>
 </body>
 </html>

@@ -192,6 +192,41 @@ def test_workbench_js_contains_admin_workspace_contract():
     assert "query.set('adminPane', state.adminPane)" in js
 
 
+def test_workbench_supports_cloudbase_runtime_and_access_tokens():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert "async function loadRuntimeConfig()" in js
+    assert "function loadCloudBaseSdk(url)" in js
+    assert "async function restoreCloudBaseSession()" in js
+    assert "async function signInCloudBase(username, password)" in js
+    assert "Authorization: `Bearer ${state.accessToken}`" in js
+    assert "/api/runtime-config" in js
+    assert "/api/session" in js
+
+
+def test_cloudbase_login_ui_exists_without_removing_local_admin_login():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="cloudbase-auth-modal"' in html
+    assert 'id="cloudbase-username"' in html
+    assert 'id="cloudbase-password"' in html
+    assert 'id="admin-modal"' in html
+
+
+def test_admin_workspace_supports_runtime_settings_and_cloudbase_users():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert 'data-admin-pane="runtime"' in js
+    assert 'id="runtime-concurrency"' in js
+    assert 'id="runtime-queue-limit"' in js
+    assert 'id="runtime-accepting"' in js
+    assert "/api/admin/runtime-settings" in js
+    assert 'data-admin-pane="users"' in js
+    assert 'id="user-role"' in js
+    assert 'id="user-status"' in js
+    assert "/api/admin/users" in js
+
+
 def test_workbench_static_files_follow_accessibility_basics():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")

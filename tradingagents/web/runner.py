@@ -6,8 +6,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 
-from .admin_store import get_admin_store
 from .events import AnalysisEvent
+from .store_factory import get_application_store
 
 
 REPORT_SECTIONS: tuple[str, ...] = (
@@ -171,7 +171,11 @@ def create_graph_for_request(
         graph_factory = TradingAgentsGraph
     config = config_for_request(request, config)
 
-    runtime_model = get_admin_store().get_default_runtime_model() if use_admin_runtime_config else None
+    runtime_model = (
+        get_application_store().get_default_runtime_model()
+        if use_admin_runtime_config
+        else None
+    )
     if runtime_model is not None:
         config = dict(config or {})
         config.update(

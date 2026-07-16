@@ -70,6 +70,13 @@ class AdminStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    @classmethod
+    def from_database_url(cls, database_url: str) -> "AdminStore":
+        prefix = "sqlite:///"
+        if not str(database_url).startswith(prefix):
+            raise ValueError("local database URL must use sqlite:///")
+        return cls(Path(str(database_url)[len(prefix) :]))
+
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -1042,11 +1049,7 @@ class AdminStore:
         return out
 
 
-_STORE: AdminStore | None = None
-
-
 def get_admin_store() -> AdminStore:
-    global _STORE
-    if _STORE is None:
-        _STORE = AdminStore()
-    return _STORE
+    from .store_factory import get_application_store
+
+    return get_application_store()

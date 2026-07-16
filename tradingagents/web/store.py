@@ -30,7 +30,7 @@ class RuntimeSettings:
         *,
         updated_by: str = "",
         updated_at: str = "",
-    ) -> "RuntimeSettings":
+    ) -> RuntimeSettings:
         concurrency = int(payload["analysis_concurrency_limit"])
         queue_limit = int(payload["analysis_queue_limit"])
         accepting = payload["accept_new_tasks"]
@@ -65,3 +65,11 @@ class ApplicationStore(Protocol):
     def count_running_analysis_runs(self) -> int: ...
 
     def claim_next_analysis_run(self) -> dict[str, Any] | None: ...
+
+    def get_app_user(self, uid: str) -> dict[str, Any] | None: ...
+
+    def list_app_users(self) -> list[dict[str, Any]]: ...
+
+    def upsert_app_user(self, payload: dict[str, Any]) -> dict[str, Any]: ...
+
+    def delete_app_user(self, uid: str) -> bool: ...

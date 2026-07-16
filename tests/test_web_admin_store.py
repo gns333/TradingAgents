@@ -272,3 +272,32 @@ def test_claim_next_analysis_run_is_fifo(tmp_path: Path):
     assert claimed["status"] == "running"
     assert store.count_running_analysis_runs() == 1
     assert store.count_queued_analysis_runs() == 1
+
+
+def test_app_users_are_normalized_and_role_validated(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+
+    saved = store.upsert_app_user(
+        {
+            "uid": " cb-123 ",
+            "email": "Admin@Example.com",
+            "display_name": "Administrator",
+            "role": "admin",
+            "status": "active",
+            "daily_limit": 100,
+        }
+    )
+
+    assert saved["uid"] == "cb-123"
+    assert saved["email"] == "admin@example.com"
+    assert saved["role"] == "admin"
+    assert store.get_app_user("cb-123") == saved
+    assert [item["uid"] for item in store.list_app_users()] == ["cb-123"]
+
+    with pytest.raises(ValueError, match="role"):
+        store.upsert_app_user(
+            {"uid": "user-2", "role": "owner", "status": "active"}
+        )
+
+    assert store.delete_app_user("cb-123") is True
+    assert store.get_app_user("cb-123") is None

@@ -403,6 +403,83 @@ class MySQLApplicationStore:
         out["allowed_models"] = json.loads(out.get("allowed_models") or "[]")
         return out
 
+    def get_app_user(self, uid: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM app_users WHERE uid = %s",
+                (str(uid).strip(),),
+            )
+            row = cursor.fetchone()
+        return None if row is None else dict(row)
+
+    def list_app_users(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT * FROM app_users ORDER BY role, email, uid"
+            )
+            rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_app_user(self, payload: dict[str, Any]) -> dict[str, Any]:
+        uid = str(payload.get("uid") or "").strip()
+        if not uid:
+            raise ValueError("uid is required")
+        role = str(payload.get("role") or "user").strip().lower()
+        if role not in {"admin", "user"}:
+            raise ValueError("role must be admin or user")
+        status = str(payload.get("status") or "active").strip().lower()
+        if status not in {"active", "disabled"}:
+            raise ValueError("status must be active or disabled")
+        daily_limit = int(payload.get("daily_limit", 5))
+        if daily_limit < 0:
+            raise ValueError("daily_limit must be non-negative")
+        email = str(payload.get("email") or "").strip().lower()
+        display_name = str(payload.get("display_name") or "").strip()
+        now = _now()
+        with self._connect() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO app_users (
+                    uid, email, display_name, role, status, daily_limit,
+                    created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    email = VALUES(email),
+                    display_name = VALUES(display_name),
+                    role = VALUES(role),
+                    status = VALUES(status),
+                    daily_limit = VALUES(daily_limit),
+                    updated_at = VALUES(updated_at)
+                """,
+                (
+                    uid,
+                    email,
+                    display_name,
+                    role,
+                    status,
+                    daily_limit,
+                    now,
+                    now,
+                ),
+            )
+            cursor.execute(
+                "SELECT * FROM app_users WHERE uid = %s",
+                (uid,),
+            )
+            row = cursor.fetchone()
+            conn.commit()
+        return dict(row)
+
+    def delete_app_user(self, uid: str) -> bool:
+        with self._connect() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM app_users WHERE uid = %s",
+                (str(uid).strip(),),
+            )
+            deleted = cursor.rowcount == 1
+            conn.commit()
+        return deleted
+
     def list_model_configs(self) -> list[dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cursor:
             cursor.execute(

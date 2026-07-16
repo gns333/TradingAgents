@@ -8,21 +8,20 @@ API is narrow enough to replace with a CloudBase DB-backed implementation later.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
-from pathlib import Path
 import secrets
 import sqlite3
-from typing import Any
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .store import QueueLimitReached, RuntimeSettings, TaskSubmissionPaused
-
 
 DEFAULT_ADMIN_DB = Path(".tradingagents") / "web_admin.sqlite3"
 
@@ -71,7 +70,7 @@ class AdminStore:
         self._init_db()
 
     @classmethod
-    def from_database_url(cls, database_url: str) -> "AdminStore":
+    def from_database_url(cls, database_url: str) -> AdminStore:
         prefix = "sqlite:///"
         if not str(database_url).startswith(prefix):
             raise ValueError("local database URL must use sqlite:///")
@@ -106,6 +105,17 @@ class AdminStore:
                     daily_limit INTEGER NOT NULL DEFAULT 5,
                     allowed_models TEXT NOT NULL DEFAULT '[]',
                     note TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS app_users (
+                    uid TEXT PRIMARY KEY,
+                    email TEXT NOT NULL DEFAULT '',
+                    display_name TEXT NOT NULL DEFAULT '',
+                    role TEXT NOT NULL DEFAULT 'user',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    daily_limit INTEGER NOT NULL DEFAULT 5,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -472,6 +482,79 @@ class AdminStore:
         out = dict(row)
         out["allowed_models"] = json.loads(out.get("allowed_models") or "[]")
         return out
+
+    def get_app_user(self, uid: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM app_users WHERE uid = ?",
+                (str(uid).strip(),),
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def list_app_users(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM app_users ORDER BY role, email, uid"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_app_user(self, payload: dict[str, Any]) -> dict[str, Any]:
+        uid = str(payload.get("uid") or "").strip()
+        if not uid:
+            raise ValueError("uid is required")
+        role = str(payload.get("role") or "user").strip().lower()
+        if role not in {"admin", "user"}:
+            raise ValueError("role must be admin or user")
+        status = str(payload.get("status") or "active").strip().lower()
+        if status not in {"active", "disabled"}:
+            raise ValueError("status must be active or disabled")
+        daily_limit = int(payload.get("daily_limit", 5))
+        if daily_limit < 0:
+            raise ValueError("daily_limit must be non-negative")
+        email = str(payload.get("email") or "").strip().lower()
+        display_name = str(payload.get("display_name") or "").strip()
+        now = _now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO app_users (
+                    uid, email, display_name, role, status, daily_limit,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(uid) DO UPDATE SET
+                    email = excluded.email,
+                    display_name = excluded.display_name,
+                    role = excluded.role,
+                    status = excluded.status,
+                    daily_limit = excluded.daily_limit,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    uid,
+                    email,
+                    display_name,
+                    role,
+                    status,
+                    daily_limit,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM app_users WHERE uid = ?",
+                (uid,),
+            ).fetchone()
+            conn.commit()
+        return dict(row)
+
+    def delete_app_user(self, uid: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM app_users WHERE uid = ?",
+                (str(uid).strip(),),
+            )
+            conn.commit()
+        return cur.rowcount == 1
 
     def list_model_configs(self) -> list[dict[str, Any]]:
         with self._connect() as conn:

@@ -21,6 +21,8 @@ import uuid
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .store import QueueLimitReached, RuntimeSettings, TaskSubmissionPaused
+
 
 DEFAULT_ADMIN_DB = Path(".tradingagents") / "web_admin.sqlite3"
 
@@ -171,6 +173,13 @@ class AdminStore:
             )
             self._ensure_columns(
                 conn,
+                "app_settings",
+                {
+                    "updated_by": "TEXT NOT NULL DEFAULT ''",
+                },
+            )
+            self._ensure_columns(
+                conn,
                 "analysis_reports",
                 {
                     "run_id": "TEXT",
@@ -201,6 +210,13 @@ class AdminStore:
             )
             if self._get_setting(conn, "encryption_key") is None:
                 self._set_setting(conn, "encryption_key", _b64(secrets.token_bytes(32)))
+            for key, value in {
+                "analysis_concurrency_limit": "2",
+                "analysis_queue_limit": "20",
+                "accept_new_tasks": "true",
+            }.items():
+                if self._get_setting(conn, key) is None:
+                    self._set_setting(conn, key, value)
 
     def _ensure_columns(
         self,
@@ -230,6 +246,88 @@ class AdminStore:
             (key, value, _now()),
         )
         conn.commit()
+
+    def _runtime_settings_from_connection(
+        self,
+        conn: sqlite3.Connection,
+    ) -> RuntimeSettings:
+        rows = {
+            str(row["key"]): row
+            for row in conn.execute(
+                """
+                SELECT key, value, updated_at, updated_by
+                FROM app_settings
+                WHERE key IN (
+                    'analysis_concurrency_limit',
+                    'analysis_queue_limit',
+                    'accept_new_tasks'
+                )
+                """
+            ).fetchall()
+        }
+        try:
+            accepting_value = str(rows["accept_new_tasks"]["value"]).lower()
+            if accepting_value not in {"true", "false"}:
+                raise ValueError("invalid accept_new_tasks")
+            primary = rows["analysis_concurrency_limit"]
+            return RuntimeSettings.from_payload(
+                {
+                    "analysis_concurrency_limit": int(primary["value"]),
+                    "analysis_queue_limit": int(rows["analysis_queue_limit"]["value"]),
+                    "accept_new_tasks": accepting_value == "true",
+                },
+                updated_by=str(primary["updated_by"] or ""),
+                updated_at=str(primary["updated_at"] or ""),
+            )
+        except (KeyError, TypeError, ValueError):
+            return RuntimeSettings(
+                analysis_concurrency_limit=1,
+                analysis_queue_limit=20,
+                accept_new_tasks=True,
+                warning=(
+                    "Stored runtime settings were invalid; "
+                    "concurrency was reduced to 1."
+                ),
+            )
+
+    def get_runtime_settings(self) -> RuntimeSettings:
+        with self._connect() as conn:
+            return self._runtime_settings_from_connection(conn)
+
+    def update_runtime_settings(
+        self,
+        payload: dict[str, Any],
+        updated_by: str,
+    ) -> RuntimeSettings:
+        now = _now()
+        settings = RuntimeSettings.from_payload(
+            payload,
+            updated_by=str(updated_by),
+            updated_at=now,
+        )
+        values = {
+            "analysis_concurrency_limit": str(settings.analysis_concurrency_limit),
+            "analysis_queue_limit": str(settings.analysis_queue_limit),
+            "accept_new_tasks": (
+                "true" if settings.accept_new_tasks else "false"
+            ),
+        }
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for key, value in values.items():
+                conn.execute(
+                    """
+                    INSERT INTO app_settings (key, value, updated_at, updated_by)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = excluded.updated_at,
+                        updated_by = excluded.updated_by
+                    """,
+                    (key, value, now, str(updated_by)),
+                )
+            conn.commit()
+        return settings
 
     def _key(self) -> bytes:
         with self._connect() as conn:
@@ -531,6 +629,16 @@ class AdminStore:
         analysts = json.dumps(payload.get("analysts") or [], ensure_ascii=False)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            settings = self._runtime_settings_from_connection(conn)
+            if not settings.accept_new_tasks:
+                raise TaskSubmissionPaused("new analysis submissions are paused")
+            queued = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM analysis_runs WHERE status = 'queued'"
+                ).fetchone()[0]
+            )
+            if queued >= settings.analysis_queue_limit:
+                raise QueueLimitReached("analysis queue limit reached")
             active = conn.execute(
                 """
                 SELECT * FROM analysis_runs
@@ -600,6 +708,51 @@ class AdminStore:
             ).fetchone()
             conn.commit()
         return self._analysis_run_row(row)
+
+    def claim_next_analysis_run(self) -> dict[str, Any] | None:
+        now = _now()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            queued = conn.execute(
+                """
+                SELECT id FROM analysis_runs
+                WHERE status = 'queued'
+                ORDER BY created_at, id
+                LIMIT 1
+                """
+            ).fetchone()
+            if queued is None:
+                conn.commit()
+                return None
+            run_id = str(queued["id"])
+            conn.execute(
+                """
+                UPDATE analysis_runs
+                SET status = 'running', started_at = COALESCE(started_at, ?),
+                    heartbeat_at = ?, error_type = '', error_message = ''
+                WHERE id = ? AND status = 'queued'
+                """,
+                (now, now, run_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM analysis_runs WHERE id = ?", (run_id,)
+            ).fetchone()
+            conn.commit()
+        return self._analysis_run_row(row)
+
+    def count_queued_analysis_runs(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM analysis_runs WHERE status = 'queued'"
+            ).fetchone()
+        return int(row["count"])
+
+    def count_running_analysis_runs(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM analysis_runs WHERE status = 'running'"
+            ).fetchone()
+        return int(row["count"])
 
     def touch_analysis_run(self, run_id: str, current_agent: str = "") -> None:
         with self._connect() as conn:

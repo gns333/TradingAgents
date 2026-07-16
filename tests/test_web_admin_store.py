@@ -5,6 +5,7 @@ import pytest
 from tradingagents.web.admin_store import AdminStore, mask_secret
 from tradingagents.web.events import AnalysisEvent
 from tradingagents.web.identity import Principal
+from tradingagents.web.store import QueueLimitReached, TaskSubmissionPaused
 
 
 def test_model_api_key_is_encrypted_and_masked(tmp_path: Path):
@@ -163,3 +164,111 @@ def test_legacy_report_owner_is_backfilled_during_store_upgrade(tmp_path: Path):
     visible = upgraded.list_analysis_reports(owner_key="email:legacy@example.com")
     assert [item["id"] for item in visible] == [report["id"]]
     assert visible[0]["owner_email"] == "legacy@example.com"
+
+
+def test_runtime_settings_have_database_defaults_and_validate_updates(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+
+    defaults = store.get_runtime_settings()
+    assert defaults.analysis_concurrency_limit == 2
+    assert defaults.analysis_queue_limit == 20
+    assert defaults.accept_new_tasks is True
+    assert defaults.warning == ""
+
+    updated = store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 4,
+            "analysis_queue_limit": 30,
+            "accept_new_tasks": False,
+        },
+        updated_by="uid:admin",
+    )
+    assert updated.analysis_concurrency_limit == 4
+    assert updated.analysis_queue_limit == 30
+    assert updated.accept_new_tasks is False
+    assert updated.updated_by == "uid:admin"
+
+    with pytest.raises(ValueError, match="between 1 and 8"):
+        store.update_runtime_settings(
+            {
+                "analysis_concurrency_limit": 9,
+                "analysis_queue_limit": 30,
+                "accept_new_tasks": True,
+            },
+            updated_by="uid:admin",
+        )
+
+
+def test_paused_submission_and_queue_limit_are_enforced_in_store(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 1,
+            "analysis_queue_limit": 1,
+            "accept_new_tasks": False,
+        },
+        updated_by="uid:admin",
+    )
+
+    with pytest.raises(TaskSubmissionPaused):
+        store.create_analysis_run(
+            {
+                "owner_key": "uid:u1",
+                "ticker": "600519.SH",
+                "trade_date": "2026-07-16",
+                "analysts": ["market"],
+            }
+        )
+
+    store.update_runtime_settings(
+        {
+            "analysis_concurrency_limit": 1,
+            "analysis_queue_limit": 1,
+            "accept_new_tasks": True,
+        },
+        updated_by="uid:admin",
+    )
+    store.create_analysis_run(
+        {
+            "owner_key": "uid:u1",
+            "ticker": "600519.SH",
+            "trade_date": "2026-07-16",
+            "analysts": ["market"],
+        }
+    )
+    with pytest.raises(QueueLimitReached):
+        store.create_analysis_run(
+            {
+                "owner_key": "uid:u2",
+                "ticker": "000001.SZ",
+                "trade_date": "2026-07-16",
+                "analysts": ["market"],
+            }
+        )
+
+
+def test_claim_next_analysis_run_is_fifo(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    first = store.create_analysis_run(
+        {
+            "owner_key": "uid:u1",
+            "ticker": "600519.SH",
+            "trade_date": "2026-07-16",
+            "analysts": ["market"],
+        }
+    )
+    store.create_analysis_run(
+        {
+            "owner_key": "uid:u2",
+            "ticker": "000001.SZ",
+            "trade_date": "2026-07-16",
+            "analysts": ["market"],
+        }
+    )
+
+    claimed = store.claim_next_analysis_run()
+
+    assert claimed["id"] == first["id"]
+    assert claimed["status"] == "running"
+    assert store.count_running_analysis_runs() == 1
+    assert store.count_queued_analysis_runs() == 1

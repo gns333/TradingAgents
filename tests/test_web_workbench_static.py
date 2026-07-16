@@ -44,8 +44,8 @@ def test_admin_route_is_compatibility_bridge_to_workbench_admin():
 
 
 def test_workbench_has_required_navigation_and_identity_targets():
-    html = (STATIC_DIR / "index.html").read_text()
-    js = (STATIC_DIR / "workbench.js").read_text()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert 'data-view="analysis"' in html
     assert 'data-view="reports"' in html
@@ -68,8 +68,8 @@ def test_workbench_has_required_navigation_and_identity_targets():
 
 
 def test_workbench_no_longer_exposes_sector_screening():
-    html = (STATIC_DIR / "index.html").read_text()
-    js = (STATIC_DIR / "workbench.js").read_text()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert 'data-view="sector"' not in html
     assert 'id="view-sector"' not in html
@@ -79,7 +79,7 @@ def test_workbench_no_longer_exposes_sector_screening():
 
 
 def test_workbench_js_contains_analysis_workspace_contract():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "function renderAnalysisWorkspace()" in js
     assert "function setAnalysisTicker(ticker, name)" in js
@@ -99,8 +99,8 @@ def test_workbench_js_contains_analysis_workspace_contract():
 
 
 def test_workbench_js_contains_terminal_redesign_contract():
-    html = (STATIC_DIR / "index.html").read_text()
-    js = (STATIC_DIR / "workbench.js").read_text()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert 'data-theme="dark"' in html
     assert 'id="theme-toggle"' in html
@@ -112,7 +112,7 @@ def test_workbench_js_contains_terminal_redesign_contract():
 
 
 def test_workbench_polling_uses_authenticated_api_requests():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "async function startAnalysis()" in js
     poll_start = js.index("async function pollActiveRun(runId)")
@@ -124,7 +124,7 @@ def test_workbench_polling_uses_authenticated_api_requests():
 
 
 def test_workbench_js_contains_report_center_contract():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "function renderMarkdown(markdown)" in js
     assert "function renderReportCenter()" in js
@@ -133,7 +133,7 @@ def test_workbench_js_contains_report_center_contract():
 
 
 def test_workbench_js_contains_ticker_autocomplete_contract():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "function setupTickerAutocomplete()" in js
     assert "/api/stocks/search" in js
@@ -142,7 +142,7 @@ def test_workbench_js_contains_ticker_autocomplete_contract():
 
 
 def test_workbench_js_contains_report_history_contract():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "function loadReportHistory()" in js
     assert "function openHistoryReport(id)" in js
@@ -152,7 +152,7 @@ def test_workbench_js_contains_report_history_contract():
 
 
 def test_workbench_js_contains_provider_preset_contract():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "PROVIDER_PRESETS" in js
     assert "function applyProviderPreset(clearModels = true)" in js
@@ -165,8 +165,8 @@ def test_workbench_js_contains_provider_preset_contract():
 
 
 def test_workbench_hides_empty_admin_error_and_uses_stock_names_in_reports():
-    css = (STATIC_DIR / "workbench.css").read_text()
-    js = (STATIC_DIR / "workbench.js").read_text()
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert ".form-status:empty" in css
     assert "function reportInstrumentLabel(report)" in js
@@ -174,7 +174,7 @@ def test_workbench_hides_empty_admin_error_and_uses_stock_names_in_reports():
 
 
 def test_workbench_js_contains_admin_workspace_contract():
-    js = (STATIC_DIR / "workbench.js").read_text()
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert "function renderAdminWorkspace()" in js
     assert "function logoutAdmin()" in js
@@ -193,8 +193,8 @@ def test_workbench_js_contains_admin_workspace_contract():
 
 
 def test_workbench_static_files_follow_accessibility_basics():
-    html = (STATIC_DIR / "index.html").read_text()
-    css = (STATIC_DIR / "workbench.css").read_text()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
 
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in html
     assert 'aria-label="主导航"' in html

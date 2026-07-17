@@ -153,7 +153,7 @@ active_analysis_owners
 
 前端使用 CloudBase Web SDK v2：
 
-1. 初始化 CloudBase 环境和 Publishable Key。
+1. 初始化 CloudBase 环境并启用 Web Auth 登录方式。
 2. 用户完成 CloudBase 登录。
 3. 前端取得 Access Token。
 4. 所有受保护 API 请求携带 `Authorization: Bearer <token>`。
@@ -223,11 +223,11 @@ CloudBase 响应示例：
   "auth": "cloudbase",
   "env_id": "env-id",
   "region": "ap-shanghai",
-  "publishable_key": "public-client-key"
+  "sdk_url": "https://static.cloudbase.net/cloudbase-js-sdk/2.28.6/cloudbase.full.js"
 }
 ```
 
-Publishable Key 是客户端公开配置，不是供应商 API Key。接口不得返回数据库凭据、主加密密钥或模型供应商密钥。
+Web Auth 账号认证使用环境 ID 和地域初始化，不向认证实例注入 Publishable Key，避免匿名资源凭据被误当作用户 Access Token。接口不得返回数据库凭据、主加密密钥或模型供应商密钥。
 
 工作台初始化时先读取运行时配置：
 

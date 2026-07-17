@@ -284,8 +284,7 @@
     const cloudbase = await loadCloudBaseSdk(state.runtime.sdk_url);
     state.cloudbaseApp = cloudbase.init({
       env: state.runtime.env_id,
-      region: state.runtime.region,
-      accessKey: state.runtime.publishable_key
+      region: state.runtime.region
     });
     state.cloudbaseAuth = typeof state.cloudbaseApp.auth === 'function'
       ? state.cloudbaseApp.auth()

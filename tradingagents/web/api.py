@@ -181,7 +181,6 @@ def create_app(
             "auth": "cloudbase",
             "env_id": runtime.cloudbase_env_id,
             "region": runtime.cloudbase_region,
-            "publishable_key": runtime.cloudbase_publishable_key,
             "sdk_url": CLOUDBASE_SDK_URL,
         }
 

@@ -201,6 +201,7 @@ def test_workbench_supports_cloudbase_runtime_and_access_tokens():
     assert "Authorization: `Bearer ${state.accessToken}`" in js
     assert "/api/runtime-config" in js
     assert "/api/session" in js
+    assert "accessKey: state.runtime.publishable_key" not in js
 
 
 def test_cloudbase_login_ui_exists_without_removing_local_admin_login():

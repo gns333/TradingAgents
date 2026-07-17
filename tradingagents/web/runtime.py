@@ -21,7 +21,6 @@ class WebRuntimeConfig:
     database_url: str
     cloudbase_env_id: str = ""
     cloudbase_region: str = "ap-shanghai"
-    cloudbase_publishable_key: str = ""
     master_key: bytes | None = None
 
 
@@ -52,11 +51,6 @@ def load_web_runtime_config(
     missing: list[str] = []
     database_url = _required(env, "TRADINGAGENTS_DATABASE_URL", missing)
     env_id = _required(env, "TRADINGAGENTS_CLOUDBASE_ENV_ID", missing)
-    publishable_key = _required(
-        env,
-        "TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY",
-        missing,
-    )
     encoded_key = _required(env, "TRADINGAGENTS_MASTER_KEY", missing)
     if missing:
         raise RuntimeConfigurationError(
@@ -85,6 +79,5 @@ def load_web_runtime_config(
         cloudbase_region=str(
             env.get("TRADINGAGENTS_CLOUDBASE_REGION") or "ap-shanghai"
         ).strip(),
-        cloudbase_publishable_key=publishable_key,
         master_key=master_key,
     )

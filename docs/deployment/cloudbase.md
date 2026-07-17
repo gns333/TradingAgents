@@ -57,14 +57,13 @@ TRADINGAGENTS_RUNTIME=cloudbase
 TRADINGAGENTS_DATABASE_URL=mysql+pymysql://USER:PASSWORD@HOST:3306/DATABASE
 TRADINGAGENTS_CLOUDBASE_ENV_ID=your-env-id
 TRADINGAGENTS_CLOUDBASE_REGION=ap-shanghai
-TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY=your-publishable-key
 TRADINGAGENTS_MASTER_KEY=URL_SAFE_BASE64_32_BYTE_KEY
 ```
 
 说明：
 
 - 数据库密码若包含 `@`、`:`、`/` 等字符，必须进行 URL 编码。
-- Publishable Key 是允许出现在浏览器端的 CloudBase 客户端配置，不是模型供应商 API Key。
+- Web Auth 账号登录和注册只使用环境 ID 与地域初始化，不要把 Publishable Key 作为 `accessKey` 注入账号认证流程，否则它可能被当作用户 Access Token 并导致 `INVALID_ACCESS_TOKEN`。
 - `TRADINGAGENTS_MASTER_KEY` 必须是恰好 32 个随机字节的 URL-safe Base64，且应与数据库分离保存。
 - 不要设置 OpenAI、DeepSeek、Anthropic 等模型供应商 API Key 环境变量；部署完成后由管理员在 Web 后台录入。
 

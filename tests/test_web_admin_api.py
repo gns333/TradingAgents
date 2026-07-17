@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from tradingagents.web import api
 from tradingagents.web.admin_store import AdminStore
 from tradingagents.web.events import AnalysisEvent
+from tradingagents.web.identity import CloudBaseIdentityProvider
 from tradingagents.web.model_catalog import ModelInfo
 from tradingagents.web.runtime import WebRuntimeConfig
 from tradingagents.web.task_service import AnalysisTaskService
@@ -32,6 +33,16 @@ class FakeTaskService:
         return None
 
 
+class FakeTokenVerifier:
+    def __init__(self, context):
+        self.context = context
+        self.headers = None
+
+    def from_headers(self, headers):
+        self.headers = headers
+        return dict(self.context)
+
+
 def _cloud_context(uid: str, email: str = "") -> str:
     payload = json.dumps({"uid": uid, "email": email}).encode("utf-8")
     return base64.b64encode(payload).decode("ascii")
@@ -43,8 +54,16 @@ def _cloud_runtime() -> WebRuntimeConfig:
         database_url="mysql+pymysql://unused",
         cloudbase_env_id="env-123",
         cloudbase_region="ap-shanghai",
-        cloudbase_publishable_key="public-key",
         master_key=b"k" * 32,
+    )
+
+
+def _cloud_app(store: AdminStore, **kwargs):
+    return api.create_app(
+        store=store,
+        runtime=_cloud_runtime(),
+        identity_provider=CloudBaseIdentityProvider(store),
+        **kwargs,
     )
 
 
@@ -307,7 +326,7 @@ def test_background_run_completes_and_archives_without_opening_stream(tmp_path: 
 
 def test_runtime_config_exposes_only_public_cloudbase_values(tmp_path: Path):
     store = AdminStore(tmp_path / "admin.sqlite3")
-    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    client = TestClient(_cloud_app(store))
 
     response = client.get("/api/runtime-config")
 
@@ -316,7 +335,6 @@ def test_runtime_config_exposes_only_public_cloudbase_values(tmp_path: Path):
         "auth": "cloudbase",
         "env_id": "env-123",
         "region": "ap-shanghai",
-        "publishable_key": "public-key",
         "sdk_url": (
             "https://static.cloudbase.net/"
             "cloudbase-js-sdk/2.28.6/cloudbase.full.js"
@@ -333,11 +351,7 @@ def test_cloudbase_admin_can_update_runtime_settings(tmp_path: Path):
     )
     service = FakeTaskService()
     client = TestClient(
-        api.create_app(
-            store=store,
-            runtime=_cloud_runtime(),
-            task_service=service,
-        )
+        _cloud_app(store, task_service=service)
     )
     headers = {"x-cloudbase-context": _cloud_context("admin-1")}
 
@@ -361,7 +375,7 @@ def test_cloudbase_user_cannot_call_admin_api(tmp_path: Path):
     store.upsert_app_user(
         {"uid": "user-1", "role": "user", "status": "active"}
     )
-    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    client = TestClient(_cloud_app(store))
 
     response = client.get(
         "/api/admin/runtime-settings",
@@ -381,7 +395,7 @@ def test_cloudbase_session_and_user_admin_endpoints(tmp_path: Path):
             "status": "active",
         }
     )
-    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    client = TestClient(_cloud_app(store))
     headers = {"x-cloudbase-context": _cloud_context("admin-1")}
 
     session = client.get("/api/session", headers=headers)
@@ -399,7 +413,7 @@ def test_cloudbase_session_and_user_admin_endpoints(tmp_path: Path):
 
 def test_cloudbase_registration_creates_disabled_business_user(tmp_path: Path):
     store = AdminStore(tmp_path / "admin.sqlite3")
-    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    client = TestClient(_cloud_app(store))
 
     response = client.post(
         "/api/register",
@@ -418,6 +432,31 @@ def test_cloudbase_registration_creates_disabled_business_user(tmp_path: Path):
     assert response.json()["user"]["status"] == "disabled"
 
 
+def test_cloudbase_registration_uses_verified_bearer_identity(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    verifier = FakeTokenVerifier(
+        {"uid": "verified-user", "email": "verified@example.com"}
+    )
+    client = TestClient(
+        api.create_app(
+            store=store,
+            runtime=_cloud_runtime(),
+            identity_provider=CloudBaseIdentityProvider(store, verifier),
+        )
+    )
+
+    response = client.post(
+        "/api/register",
+        headers={"Authorization": "Bearer cloudbase-user-token"},
+        json={"email": "forged@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user"]["uid"] == "verified-user"
+    assert response.json()["user"]["email"] == "verified@example.com"
+    assert verifier.headers["authorization"] == "Bearer cloudbase-user-token"
+
+
 def test_cloudbase_registration_does_not_overwrite_existing_user(tmp_path: Path):
     store = AdminStore(tmp_path / "admin.sqlite3")
     original = store.upsert_app_user(
@@ -428,7 +467,7 @@ def test_cloudbase_registration_does_not_overwrite_existing_user(tmp_path: Path)
             "status": "active",
         }
     )
-    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    client = TestClient(_cloud_app(store))
 
     response = client.post(
         "/api/register",
@@ -446,9 +485,7 @@ def test_cloudbase_registration_does_not_overwrite_existing_user(tmp_path: Path)
 
 def test_registration_requires_cloudbase_runtime_and_context(tmp_path: Path):
     store = AdminStore(tmp_path / "admin.sqlite3")
-    cloud_client = TestClient(
-        api.create_app(store=store, runtime=_cloud_runtime())
-    )
+    cloud_client = TestClient(_cloud_app(store))
     local_client = TestClient(api.create_app(store=store))
 
     assert cloud_client.post("/api/register").status_code == 401
@@ -457,7 +494,7 @@ def test_registration_requires_cloudbase_runtime_and_context(tmp_path: Path):
 
 def test_cloudbase_mode_hides_local_admin_password_endpoints(tmp_path: Path):
     store = AdminStore(tmp_path / "admin.sqlite3")
-    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+    client = TestClient(_cloud_app(store))
 
     assert client.post("/api/admin/setup", json={"password": "correct-horse"}).status_code == 404
     assert client.post("/api/admin/login", json={"password": "correct-horse"}).status_code == 404

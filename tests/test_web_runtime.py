@@ -14,7 +14,6 @@ def test_local_runtime_is_the_zero_configuration_default():
     assert config.mode == "local"
     assert config.database_url.endswith(".tradingagents/web_admin.sqlite3")
     assert config.cloudbase_env_id == ""
-    assert config.cloudbase_publishable_key == ""
     assert config.master_key is None
 
 
@@ -25,7 +24,6 @@ def test_cloudbase_runtime_requires_database_auth_and_master_key():
     message = str(exc_info.value)
     assert "TRADINGAGENTS_DATABASE_URL" in message
     assert "TRADINGAGENTS_CLOUDBASE_ENV_ID" in message
-    assert "TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY" in message
     assert "TRADINGAGENTS_MASTER_KEY" in message
 
 
@@ -38,14 +36,13 @@ def test_cloudbase_runtime_decodes_a_32_byte_master_key():
             "TRADINGAGENTS_DATABASE_URL": "mysql+pymysql://user:pass@db/tcb",
             "TRADINGAGENTS_CLOUDBASE_ENV_ID": "env-123",
             "TRADINGAGENTS_CLOUDBASE_REGION": "ap-shanghai",
-            "TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY": "public-key",
             "TRADINGAGENTS_MASTER_KEY": encoded,
         }
     )
 
     assert config.mode == "cloudbase"
     assert config.master_key == b"k" * 32
-    assert config.cloudbase_publishable_key == "public-key"
+    assert not hasattr(config, "cloudbase_publishable_key")
 
 
 @pytest.mark.parametrize("value", ["invalid", "YQ=="])
@@ -56,7 +53,6 @@ def test_cloudbase_runtime_rejects_invalid_master_keys(value):
                 "TRADINGAGENTS_RUNTIME": "cloudbase",
                 "TRADINGAGENTS_DATABASE_URL": "mysql+pymysql://user:pass@db/tcb",
                 "TRADINGAGENTS_CLOUDBASE_ENV_ID": "env-123",
-                "TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY": "public-key",
                 "TRADINGAGENTS_MASTER_KEY": value,
             }
         )

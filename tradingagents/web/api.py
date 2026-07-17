@@ -11,10 +11,12 @@ from typing import Any
 from .admin_store import ActiveRunExists, get_admin_store
 from .events import AnalysisEvent, sse_encode
 from .identity import (
+    CloudBaseIdentityProvider,
+    IdentityProvider,
     IdentityRequired,
+    IdentityVerificationUnavailable,
     Principal,
     create_identity_provider,
-    parse_cloudbase_context,
 )
 from .model_catalog import CatalogUnsupported, ModelCatalogError, get_model_catalog
 from .runtime import WebRuntimeConfig, load_web_runtime_config
@@ -39,6 +41,7 @@ def create_app(
     store: ApplicationStore | None = None,
     runtime: WebRuntimeConfig | None = None,
     task_service: AnalysisTaskService | None = None,
+    identity_provider: IdentityProvider | None = None,
 ):
     """Create the optional FastAPI app.
 
@@ -61,7 +64,10 @@ def create_app(
     app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
     runtime = runtime or load_web_runtime_config()
     store = store or get_admin_store()
-    identity_provider = create_identity_provider(runtime, store)
+    identity_provider = identity_provider or create_identity_provider(
+        runtime,
+        store,
+    )
     task_service = task_service or create_task_service(store)
     app.state.task_service = task_service
 
@@ -107,6 +113,14 @@ def create_app(
                 detail={
                     "error_type": "IdentityRequired",
                     "message": "请先登录或提供有效访问身份。",
+                },
+            ) from exc
+        except IdentityVerificationUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_type": "IdentityVerificationUnavailable",
+                    "message": "CloudBase 身份服务暂时不可用，请稍后重试。",
                 },
             ) from exc
         except PermissionError as exc:
@@ -181,7 +195,6 @@ def create_app(
             "auth": "cloudbase",
             "env_id": runtime.cloudbase_env_id,
             "region": runtime.cloudbase_region,
-            "publishable_key": runtime.cloudbase_publishable_key,
             "sdk_url": CLOUDBASE_SDK_URL,
         }
 
@@ -198,16 +211,13 @@ def create_app(
         }
 
     @app.post("/api/register")
-    def register_cloudbase_user(
-        request: Request,
-        payload: dict[str, Any] = Body(default={}),
-    ):
+    def register_cloudbase_user(request: Request):
         if runtime.mode != "cloudbase":
             raise HTTPException(status_code=404, detail="not found")
         try:
-            context = parse_cloudbase_context(
-                request.headers.get("x-cloudbase-context")
-            )
+            if not isinstance(identity_provider, CloudBaseIdentityProvider):
+                raise IdentityRequired("CloudBase identity provider is required")
+            context = identity_provider.verified_context(request.headers)
         except IdentityRequired as exc:
             raise HTTPException(
                 status_code=401,
@@ -216,13 +226,19 @@ def create_app(
                     "message": "CloudBase 登录身份无效",
                 },
             ) from exc
+        except IdentityVerificationUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_type": "IdentityVerificationUnavailable",
+                    "message": "CloudBase 身份服务暂时不可用，请稍后重试。",
+                },
+            ) from exc
 
         uid = str(context["uid"]).strip()
         user = store.get_app_user(uid)
         if user is None:
-            email = str(
-                context.get("email") or payload.get("email") or ""
-            ).strip().lower()
+            email = str(context.get("email") or "").strip().lower()
             user = store.upsert_app_user(
                 {
                     "uid": uid,

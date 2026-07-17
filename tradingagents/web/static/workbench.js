@@ -285,7 +285,6 @@
     state.cloudbaseApp = cloudbase.init({
       env: state.runtime.env_id,
       region: state.runtime.region,
-      accessKey: state.runtime.publishable_key,
       auth: { detectSessionInUrl: true }
     });
     state.cloudbaseAuth = typeof state.cloudbaseApp.auth === 'function'

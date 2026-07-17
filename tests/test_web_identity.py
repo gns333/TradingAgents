@@ -2,10 +2,13 @@ import base64
 import json
 
 import pytest
+import requests
 
 from tradingagents.web.identity import (
+    CloudBaseAccessTokenVerifier,
     CloudBaseIdentityProvider,
     IdentityRequired,
+    IdentityVerificationUnavailable,
     parse_cloudbase_context,
 )
 
@@ -22,6 +25,29 @@ class UserStore:
         if self.user and self.user["uid"] == uid:
             return self.user
         return None
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None):
+        self.status_code = status_code
+        self.payload = payload
+        self.ok = 200 <= status_code < 300
+
+    def json(self):
+        return self.payload
+
+
+class FakeSession:
+    def __init__(self, response=None, error=None):
+        self.response = response
+        self.error = error
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        if self.error:
+            raise self.error
+        return self.response
 
 
 def test_cloudbase_context_decodes_uid_and_email():
@@ -102,3 +128,57 @@ def test_cloudbase_context_rejects_invalid_base64_and_missing_uid():
 
     with pytest.raises(IdentityRequired):
         parse_cloudbase_context(_context({"email": "user@example.com"}))
+
+
+def test_cloudbase_access_token_verifier_uses_official_profile_and_cache():
+    session = FakeSession(
+        FakeResponse(
+            payload={
+                "sub": "cb-123",
+                "email": "User@Example.com",
+                "status": "ACTIVE",
+            }
+        )
+    )
+    verifier = CloudBaseAccessTokenVerifier(
+        "env-123",
+        "ap-shanghai",
+        session=session,
+    )
+    headers = {
+        "authorization": "Bearer real-user-token",
+        "x-cloudbase-context": _context({"uid": "forged-admin"}),
+    }
+
+    first = verifier.from_headers(headers)
+    second = verifier.from_headers(headers)
+
+    assert first == {"uid": "cb-123", "email": "user@example.com"}
+    assert second == first
+    assert len(session.calls) == 1
+    assert session.calls[0][0].endswith("/auth/v1/user/me")
+    assert session.calls[0][1]["headers"]["Authorization"] == (
+        "Bearer real-user-token"
+    )
+
+
+def test_cloudbase_access_token_verifier_rejects_invalid_tokens():
+    verifier = CloudBaseAccessTokenVerifier(
+        "env-123",
+        "ap-shanghai",
+        session=FakeSession(FakeResponse(status_code=401, payload={})),
+    )
+
+    with pytest.raises(IdentityRequired):
+        verifier.from_headers({"authorization": "Bearer invalid"})
+
+
+def test_cloudbase_access_token_verifier_reports_upstream_failure():
+    verifier = CloudBaseAccessTokenVerifier(
+        "env-123",
+        "ap-shanghai",
+        session=FakeSession(error=requests.ConnectionError("offline")),
+    )
+
+    with pytest.raises(IdentityVerificationUnavailable):
+        verifier.from_headers({"authorization": "Bearer user-token"})

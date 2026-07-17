@@ -59,7 +59,9 @@ def parse_cloudbase_context(value: str | None) -> dict[str, object]:
     if not value:
         raise IdentityRequired("CloudBase identity context is required")
     try:
-        decoded = base64.b64decode(value, validate=True)
+        encoded = value.strip()
+        encoded += "=" * (-len(encoded) % 4)
+        decoded = base64.b64decode(encoded, altchars=b"-_", validate=True)
         payload = json.loads(decoded.decode("utf-8"))
     except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
         raise IdentityRequired("CloudBase identity context is invalid") from exc

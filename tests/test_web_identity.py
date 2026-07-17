@@ -33,6 +33,16 @@ def test_cloudbase_context_decodes_uid_and_email():
     assert parsed["email"] == "User@Example.com"
 
 
+def test_cloudbase_context_accepts_unpadded_base64url():
+    encoded = base64.urlsafe_b64encode(
+        json.dumps({"uid": "cb-123"}).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+    parsed = parse_cloudbase_context(encoded)
+
+    assert parsed["uid"] == "cb-123"
+
+
 def test_cloudbase_provider_uses_database_role_not_browser_role():
     provider = CloudBaseIdentityProvider(
         UserStore(

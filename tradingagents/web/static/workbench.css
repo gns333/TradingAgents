@@ -527,6 +527,7 @@ textarea { min-height: 68px; resize: vertical; }
 
 .status-box.ok, .notice.success { background: var(--down-soft); border-color: var(--down); color: var(--down); }
 .status-box.err, .form-status { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.form-status.ok { background: var(--down-soft); border-color: var(--down); color: var(--down); }
 .form-status { min-height: 0; margin-top: 6px; }
 .form-status:empty { display: none; }
 .notice.warning { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
@@ -1043,6 +1044,25 @@ textarea { min-height: 68px; resize: vertical; }
 }
 .modal-header h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .modal-body { display: grid; gap: 10px; padding: 16px; }
+.auth-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.auth-mode-tab {
+  min-height: 34px;
+  background: transparent;
+  color: var(--muted);
+}
+.auth-mode-tab:hover { background: var(--surface-2); color: var(--text); }
+.auth-mode-tab.active { background: var(--accent); color: var(--on-accent); }
+.cloudbase-auth-panel { display: grid; gap: 10px; }
+.cloudbase-auth-panel[hidden] { display: none; }
+.cloudbase-auth-panel .helper-text { margin: 2px 0; }
 
 /* ---------------------------------------------------- 主题切换 */
 .theme-toggle { position: relative; }

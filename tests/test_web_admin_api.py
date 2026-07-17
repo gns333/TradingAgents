@@ -32,8 +32,8 @@ class FakeTaskService:
         return None
 
 
-def _cloud_context(uid: str) -> str:
-    payload = json.dumps({"uid": uid}).encode("utf-8")
+def _cloud_context(uid: str, email: str = "") -> str:
+    payload = json.dumps({"uid": uid, "email": email}).encode("utf-8")
     return base64.b64encode(payload).decode("ascii")
 
 
@@ -395,6 +395,64 @@ def test_cloudbase_session_and_user_admin_endpoints(tmp_path: Path):
     assert created.status_code == 200
     assert created.json()["item"]["uid"] == "user-2"
     assert client.get("/api/admin/users", headers=headers).status_code == 200
+
+
+def test_cloudbase_registration_creates_disabled_business_user(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+
+    response = client.post(
+        "/api/register",
+        headers={
+            "x-cloudbase-context": _cloud_context(
+                "new-user", "New.User@Example.com"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_status"] == "pending"
+    assert store.get_app_user("new-user") == response.json()["user"]
+    assert response.json()["user"]["email"] == "new.user@example.com"
+    assert response.json()["user"]["role"] == "user"
+    assert response.json()["user"]["status"] == "disabled"
+
+
+def test_cloudbase_registration_does_not_overwrite_existing_user(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    original = store.upsert_app_user(
+        {
+            "uid": "existing-admin",
+            "email": "admin@example.com",
+            "role": "admin",
+            "status": "active",
+        }
+    )
+    client = TestClient(api.create_app(store=store, runtime=_cloud_runtime()))
+
+    response = client.post(
+        "/api/register",
+        headers={
+            "x-cloudbase-context": _cloud_context(
+                "existing-admin", "changed@example.com"
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval_status"] == "active"
+    assert store.get_app_user("existing-admin") == original
+
+
+def test_registration_requires_cloudbase_runtime_and_context(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    cloud_client = TestClient(
+        api.create_app(store=store, runtime=_cloud_runtime())
+    )
+    local_client = TestClient(api.create_app(store=store))
+
+    assert cloud_client.post("/api/register").status_code == 401
+    assert local_client.post("/api/register").status_code == 404
 
 
 def test_cloudbase_mode_hides_local_admin_password_endpoints(tmp_path: Path):

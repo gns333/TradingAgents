@@ -72,6 +72,7 @@
     runtime: { runtime: 'local', auth: 'local' },
     cloudbaseApp: null,
     cloudbaseAuth: null,
+    cloudbaseVerification: null,
     accessToken: '',
     currentUser: null,
     adminToken: localStorage.getItem('ta_admin_token') || '',
@@ -292,11 +293,35 @@
     if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 初始化失败');
   }
 
-  function openCloudBaseAuthModal(message = '') {
+  function setCloudBaseAuthMode(mode, clearStatus = true) {
+    const registering = mode === 'register';
+    const title = qs('#cloudbase-auth-title');
+    const loginTab = qs('#show-cloudbase-login');
+    const registerTab = qs('#show-cloudbase-register');
+    if (title) title.textContent = registering ? '注册 TradingAgents' : '登录 TradingAgents';
+    if (qs('#cloudbase-login-panel')) qs('#cloudbase-login-panel').hidden = registering;
+    if (qs('#cloudbase-register-panel')) qs('#cloudbase-register-panel').hidden = !registering;
+    if (qs('#cloudbase-sign-in')) qs('#cloudbase-sign-in').hidden = registering;
+    if (qs('#cloudbase-sign-up')) qs('#cloudbase-sign-up').hidden = !registering;
+    loginTab?.classList.toggle('active', !registering);
+    registerTab?.classList.toggle('active', registering);
+    loginTab?.setAttribute('aria-selected', String(!registering));
+    registerTab?.setAttribute('aria-selected', String(registering));
+    if (clearStatus) setStatus('#cloudbase-auth-status', '', undefined);
+    setTimeout(
+      () => qs(registering ? '#cloudbase-register-email' : '#cloudbase-username')?.focus(),
+      0
+    );
+  }
+
+  function openCloudBaseAuthModal(message = '', ok = undefined) {
     const modal = qs('#cloudbase-auth-modal');
     if (modal) modal.hidden = false;
-    setStatus('#cloudbase-auth-status', message, message ? false : undefined);
-    setTimeout(() => qs('#cloudbase-username')?.focus(), 0);
+    setStatus('#cloudbase-auth-status', message, ok);
+    setTimeout(() => {
+      const registering = !qs('#cloudbase-register-panel')?.hidden;
+      qs(registering ? '#cloudbase-register-email' : '#cloudbase-username')?.focus();
+    }, 0);
   }
 
   function closeCloudBaseAuthModal() {
@@ -333,13 +358,151 @@
     }
   }
 
+  function cloudBaseData(result) {
+    return result?.data || result || {};
+  }
+
+  function requireCloudBaseSuccess(result, fallbackMessage) {
+    if (result?.error) {
+      throw new Error(result.error.message || fallbackMessage);
+    }
+    return cloudBaseData(result);
+  }
+
+  async function syncCloudBaseUser(email = '') {
+    const tokenResult = await state.cloudbaseAuth.getAccessToken();
+    state.accessToken = tokenResult?.accessToken || tokenResult?.data?.accessToken || '';
+    if (!state.accessToken) throw new Error('无法获取 CloudBase 登录凭证');
+    return apiJson('/api/register', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ email })
+    });
+  }
+
   async function signInCloudBase(username, password) {
     if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 尚未初始化');
-    const result = typeof state.cloudbaseAuth.signInWithPassword === 'function'
-      ? await state.cloudbaseAuth.signInWithPassword({ username, password })
-      : await state.cloudbaseAuth.signIn({ username, password });
-    if (result?.error) throw new Error(result.error.message || '登录失败');
+    let result;
+    if (typeof state.cloudbaseAuth.signIn === 'function') {
+      result = await state.cloudbaseAuth.signIn({ username, password });
+    } else if (typeof state.cloudbaseAuth.signInWithPassword === 'function') {
+      const credentials = username.includes('@')
+        ? { email: username, password }
+        : { phone: username, password };
+      result = await state.cloudbaseAuth.signInWithPassword(credentials);
+    } else {
+      throw new Error('当前 CloudBase SDK 不支持密码登录');
+    }
+    requireCloudBaseSuccess(result, '登录失败');
+    const registration = await syncCloudBaseUser(
+      username.includes('@') ? username : ''
+    );
+    if (registration.approval_status !== 'active') {
+      await signOutCloudBase(false);
+      throw new Error('账号已注册，正在等待管理员启用');
+    }
     if (!await restoreCloudBaseSession()) throw new Error('账号未启用或没有访问权限');
+  }
+
+  async function requestCloudBaseEmailCode(email) {
+    if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 尚未初始化');
+    if (typeof state.cloudbaseAuth.getVerification !== 'function') {
+      throw new Error('当前 CloudBase SDK 不支持邮箱验证码注册');
+    }
+    const result = await state.cloudbaseAuth.getVerification({ email });
+    const verification = requireCloudBaseSuccess(result, '验证码发送失败');
+    const verificationId = verification.verification_id || verification.verificationId;
+    if (!verificationId) throw new Error('CloudBase 未返回验证码标识');
+    state.cloudbaseVerification = { email, verificationId };
+    return verification;
+  }
+
+  async function signUpCloudBase(email, password, code) {
+    if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 尚未初始化');
+    const pending = state.cloudbaseVerification;
+    if (!pending || pending.email !== email) {
+      throw new Error('请先向当前邮箱发送验证码');
+    }
+    const verifyResult = await state.cloudbaseAuth.verify({
+      verification_id: pending.verificationId,
+      verification_code: code
+    });
+    const verified = requireCloudBaseSuccess(verifyResult, '验证码校验失败');
+    const verificationToken = (
+      verified.verification_token || verified.verificationToken
+    );
+    if (!verificationToken) throw new Error('CloudBase 未返回验证码凭证');
+
+    const signUpResult = await state.cloudbaseAuth.signUp({
+      email,
+      password,
+      verification_code: code,
+      verification_token: verificationToken
+    });
+    requireCloudBaseSuccess(signUpResult, '注册失败');
+    return syncCloudBaseUser(email);
+  }
+
+  async function submitCloudBaseVerification() {
+    const emailInput = qs('#cloudbase-register-email');
+    const email = emailInput?.value.trim().toLowerCase() || '';
+    if (!email || !emailInput?.checkValidity()) {
+      setStatus('#cloudbase-auth-status', '请输入有效邮箱', false);
+      return;
+    }
+    const button = qs('#cloudbase-send-code');
+    if (button) button.disabled = true;
+    setStatus('#cloudbase-auth-status', '正在发送验证码…', undefined);
+    try {
+      await requestCloudBaseEmailCode(email);
+      setStatus('#cloudbase-auth-status', '验证码已发送，请检查邮箱', true);
+      qs('#cloudbase-register-code')?.focus();
+    } catch (err) {
+      setStatus('#cloudbase-auth-status', `发送失败：${err.message}`, false);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function submitCloudBaseRegistration() {
+    const emailInput = qs('#cloudbase-register-email');
+    const passwordInput = qs('#cloudbase-register-password');
+    const email = emailInput?.value.trim().toLowerCase() || '';
+    const password = passwordInput?.value || '';
+    const code = qs('#cloudbase-register-code')?.value.trim() || '';
+    if (!email || !emailInput?.checkValidity()) {
+      setStatus('#cloudbase-auth-status', '请输入有效邮箱', false);
+      return;
+    }
+    if (!password || !passwordInput?.checkValidity()) {
+      setStatus('#cloudbase-auth-status', '密码需为 8–32 位', false);
+      return;
+    }
+    if (!code) {
+      setStatus('#cloudbase-auth-status', '请输入邮箱验证码', false);
+      return;
+    }
+
+    const button = qs('#cloudbase-sign-up');
+    if (button) button.disabled = true;
+    setStatus('#cloudbase-auth-status', '正在注册并提交审核…', undefined);
+    try {
+      const registration = await signUpCloudBase(email, password, code);
+      await signOutCloudBase(false);
+      state.cloudbaseVerification = null;
+      if (passwordInput) passwordInput.value = '';
+      if (qs('#cloudbase-register-code')) qs('#cloudbase-register-code').value = '';
+      if (qs('#cloudbase-username')) qs('#cloudbase-username').value = email;
+      setCloudBaseAuthMode('login', false);
+      const message = registration.approval_status === 'active'
+        ? '注册完成，账号已启用，请登录'
+        : '注册成功，已提交管理员审核；启用后即可登录';
+      setStatus('#cloudbase-auth-status', message, true);
+    } catch (err) {
+      setStatus('#cloudbase-auth-status', `注册失败：${err.message}`, false);
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   async function submitCloudBaseLogin() {
@@ -360,7 +523,7 @@
     }
   }
 
-  async function signOutCloudBase() {
+  async function signOutCloudBase(reopenLogin = true) {
     try {
       if (state.cloudbaseAuth?.signOut) await state.cloudbaseAuth.signOut();
     } finally {
@@ -369,7 +532,10 @@
       setAdminAvailable(false);
       updateIdentitySummary();
       showView('analysis');
-      openCloudBaseAuthModal();
+      if (reopenLogin) {
+        setCloudBaseAuthMode('login', false);
+        openCloudBaseAuthModal();
+      }
     }
   }
 
@@ -2151,9 +2317,16 @@
     });
     qs('#close-admin-modal')?.addEventListener('click', closeAdminModal);
     qs('#close-cloudbase-auth-modal')?.addEventListener('click', closeCloudBaseAuthModal);
+    qs('#show-cloudbase-login')?.addEventListener('click', () => setCloudBaseAuthMode('login'));
+    qs('#show-cloudbase-register')?.addEventListener('click', () => setCloudBaseAuthMode('register'));
     qs('#cloudbase-sign-in')?.addEventListener('click', submitCloudBaseLogin);
+    qs('#cloudbase-send-code')?.addEventListener('click', submitCloudBaseVerification);
+    qs('#cloudbase-sign-up')?.addEventListener('click', submitCloudBaseRegistration);
     qs('#cloudbase-password')?.addEventListener('keydown', event => {
       if (event.key === 'Enter') submitCloudBaseLogin();
+    });
+    qs('#cloudbase-register-code')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter') submitCloudBaseRegistration();
     });
     document.querySelectorAll('.modal-backdrop').forEach(modal => {
       modal.addEventListener('click', event => {
@@ -2210,6 +2383,8 @@
     loadRuntimeConfig,
     restoreCloudBaseSession,
     signInCloudBase,
+    requestCloudBaseEmailCode,
+    signUpCloudBase,
     persistAdminSession,
     refreshAdminStatus,
     logoutAdmin,

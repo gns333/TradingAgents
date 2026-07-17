@@ -80,7 +80,7 @@ $bytes = New-Object byte[] 32
 
 ## 4. 配置 Web Auth、HTTP 网关和安全域名
 
-1. 在 CloudBase 身份认证中启用账号密码登录，并创建或允许用户注册。
+1. 在 CloudBase“身份认证 → 登录方式”中启用“用户名密码登录”和“邮箱验证码”。
 2. 在 HTTP 网关中将域名路由到该云托管服务。
 3. 下列路径保持公开访问：
 
@@ -96,10 +96,12 @@ $bytes = New-Object byte[] 32
 
 HTTP 网关开启身份认证后，前端需要把 Web SDK 获取的 Access Token 放入 `Authorization: Bearer ...`；网关验证后再把用户上下文交给应用。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication) 和 [HTTP 访问说明](https://docs.cloudbase.net/run/develop/access/client)。
 
+页面中的“注册”使用 CloudBase 邮箱验证码流程创建身份账号。CloudBase 不支持无需验证的用户名密码自助注册；注册接口依次调用 `getVerification`、`verify` 和 `signUp`。参见 [CloudBase 用户名密码登录与注册](https://docs.cloudbase.net/authentication-v2/method/username-login)。
+
 ## 5. 初始化首个管理员
 
-1. 先通过部署后的页面登录一次 CloudBase 账号。
-2. 此时应用可能提示“账号未启用或没有访问权限”，这是正常的。
+1. 先通过部署后页面的“注册”完成邮箱验证和账号创建。
+2. 应用会自动把网关验证得到的 CloudBase UID 写入 `app_users`，默认角色为 `user`、状态为 `disabled`，并提示等待管理员审核。
 3. 在 CloudBase 用户管理中取得该账号的稳定 UID。
 4. 等 `/readyz` 返回 `200`、应用表已创建后，在 MySQL 控制台执行：
 
@@ -122,16 +124,16 @@ ON DUPLICATE KEY UPDATE
     updated_at = UTC_TIMESTAMP(6);
 ```
 
-退出并重新登录后，侧边栏会显示管理员身份和“后台管理”入口。后续普通用户、管理员、启用状态和每日次数均可在后台维护。
+退出并重新登录后，侧边栏会显示管理员身份和“后台管理”入口。后续用户自行注册后会自动出现在“用户管理”中；管理员将状态从 `disabled` 改为 `active` 后，该用户即可登录并发起任务。
 
-不要根据浏览器提交的邮箱或 UID 授予权限；云端角色只以 HTTP 网关身份对应的数据库记录为准。
+不要根据浏览器提交的邮箱或 UID 授予权限；注册同步只以 HTTP 网关注入的 UID 创建待启用记录，云端角色和启用状态只以数据库记录为准。
 
 ## 6. 在后台完成应用配置
 
 进入“后台管理”：
 
 1. 在“模型管理”中新增供应商、模型和 API Key。读取接口只返回掩码；编辑时 Key 留空表示保留原值。
-2. 在“用户管理”中添加 CloudBase UID，并设置 `user/admin` 与 `active/disabled`。
+2. 在“用户管理”中审核新注册用户，并设置 `user/admin`、`active/disabled` 与每日次数。
 3. 在“运行设置”中调整：
 
    - 同时执行任务数：`1` 至 `8`。

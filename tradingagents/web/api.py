@@ -14,6 +14,7 @@ from .identity import (
     IdentityRequired,
     Principal,
     create_identity_provider,
+    parse_cloudbase_context,
 )
 from .model_catalog import CatalogUnsupported, ModelCatalogError, get_model_catalog
 from .runtime import WebRuntimeConfig, load_web_runtime_config
@@ -194,6 +195,48 @@ def create_app(
                 "role": principal.role,
                 "is_admin": principal.is_admin,
             }
+        }
+
+    @app.post("/api/register")
+    def register_cloudbase_user(
+        request: Request,
+        payload: dict[str, Any] = Body(default={}),
+    ):
+        if runtime.mode != "cloudbase":
+            raise HTTPException(status_code=404, detail="not found")
+        try:
+            context = parse_cloudbase_context(
+                request.headers.get("x-cloudbase-context")
+            )
+        except IdentityRequired as exc:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error_type": "IdentityRequired",
+                    "message": "CloudBase 登录身份无效",
+                },
+            ) from exc
+
+        uid = str(context["uid"]).strip()
+        user = store.get_app_user(uid)
+        if user is None:
+            email = str(
+                context.get("email") or payload.get("email") or ""
+            ).strip().lower()
+            user = store.upsert_app_user(
+                {
+                    "uid": uid,
+                    "email": email,
+                    "role": "user",
+                    "status": "disabled",
+                    "daily_limit": 5,
+                }
+            )
+        return {
+            "user": user,
+            "approval_status": (
+                "active" if user["status"] == "active" else "pending"
+            ),
         }
 
     @app.get("/api/stocks/search")

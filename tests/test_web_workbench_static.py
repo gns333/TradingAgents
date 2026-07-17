@@ -212,6 +212,25 @@ def test_cloudbase_login_ui_exists_without_removing_local_admin_login():
     assert 'id="admin-modal"' in html
 
 
+def test_cloudbase_email_registration_ui_and_sdk_flow_exist():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert 'id="show-cloudbase-login"' in html
+    assert 'id="show-cloudbase-register"' in html
+    assert 'id="cloudbase-register-email"' in html
+    assert 'id="cloudbase-register-password"' in html
+    assert 'id="cloudbase-register-code"' in html
+    assert 'id="cloudbase-send-code"' in html
+    assert 'id="cloudbase-sign-up"' in html
+    assert "async function requestCloudBaseEmailCode(email)" in js
+    assert "async function signUpCloudBase(email, password, code)" in js
+    assert ".getVerification({ email })" in js
+    assert ".verify({" in js
+    assert ".signUp({" in js
+    assert "'/api/register'" in js
+
+
 def test_admin_workspace_supports_runtime_settings_and_cloudbase_users():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 

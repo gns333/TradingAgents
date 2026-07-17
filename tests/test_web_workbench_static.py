@@ -225,10 +225,20 @@ def test_cloudbase_email_registration_ui_and_sdk_flow_exist():
     assert 'id="cloudbase-sign-up"' in html
     assert "async function requestCloudBaseEmailCode(email)" in js
     assert "async function signUpCloudBase(email, password, code)" in js
-    assert ".getVerification({ email })" in js
+    assert ".getVerification({ email, target: 'ANY' })" in js
     assert ".verify({" in js
     assert ".signUp({" in js
     assert "'/api/register'" in js
+
+
+def test_cloudbase_registration_preserves_structured_sdk_errors():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert "function cloudBaseErrorMessage(error, fallbackMessage)" in js
+    assert "error_description" in js
+    assert "requestId" in js
+    assert "getVerification({ email, target: 'ANY' })" in js
+    assert "cloudBaseErrorMessage(err, '验证码发送失败')" in js
 
 
 def test_admin_workspace_supports_runtime_settings_and_cloudbase_users():

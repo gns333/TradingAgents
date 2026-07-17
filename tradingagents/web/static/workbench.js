@@ -362,9 +362,42 @@
     return result?.data || result || {};
   }
 
+  function cloudBaseErrorMessage(error, fallbackMessage) {
+    if (typeof error === 'string') return error || fallbackMessage;
+    const source = error && typeof error === 'object' ? error : {};
+    const nested = source.error && typeof source.error === 'object'
+      ? source.error
+      : {};
+    const code = (
+      source.code
+      || nested.code
+      || (typeof source.error === 'string' ? source.error : '')
+    );
+    const message = (
+      source.error_description
+      || source.errorDescription
+      || source.message
+      || source.msg
+      || nested.message
+      || nested.error_description
+      || code
+      || fallbackMessage
+    );
+    const requestId = (
+      source.requestId
+      || source.request_id
+      || nested.requestId
+      || nested.request_id
+    );
+    let detail = String(message || fallbackMessage);
+    if (code && !detail.includes(String(code))) detail += `（${code}）`;
+    if (requestId) detail += `；请求 ID：${requestId}`;
+    return detail;
+  }
+
   function requireCloudBaseSuccess(result, fallbackMessage) {
     if (result?.error) {
-      throw new Error(result.error.message || fallbackMessage);
+      throw new Error(cloudBaseErrorMessage(result, fallbackMessage));
     }
     return cloudBaseData(result);
   }
@@ -409,7 +442,7 @@
     if (typeof state.cloudbaseAuth.getVerification !== 'function') {
       throw new Error('当前 CloudBase SDK 不支持邮箱验证码注册');
     }
-    const result = await state.cloudbaseAuth.getVerification({ email });
+    const result = await state.cloudbaseAuth.getVerification({ email, target: 'ANY' });
     const verification = requireCloudBaseSuccess(result, '验证码发送失败');
     const verificationId = verification.verification_id || verification.verificationId;
     if (!verificationId) throw new Error('CloudBase 未返回验证码标识');
@@ -458,7 +491,11 @@
       setStatus('#cloudbase-auth-status', '验证码已发送，请检查邮箱', true);
       qs('#cloudbase-register-code')?.focus();
     } catch (err) {
-      setStatus('#cloudbase-auth-status', `发送失败：${err.message}`, false);
+      setStatus(
+        '#cloudbase-auth-status',
+        `发送失败：${cloudBaseErrorMessage(err, '验证码发送失败')}`,
+        false
+      );
     } finally {
       if (button) button.disabled = false;
     }
@@ -499,7 +536,11 @@
         : '注册成功，已提交管理员审核；启用后即可登录';
       setStatus('#cloudbase-auth-status', message, true);
     } catch (err) {
-      setStatus('#cloudbase-auth-status', `注册失败：${err.message}`, false);
+      setStatus(
+        '#cloudbase-auth-status',
+        `注册失败：${cloudBaseErrorMessage(err, '注册失败')}`,
+        false
+      );
     } finally {
       if (button) button.disabled = false;
     }
@@ -519,7 +560,11 @@
       await restoreActiveRun();
       if (state.view === 'reports') await loadReportHistory();
     } catch (err) {
-      setStatus('#cloudbase-auth-status', `登录失败：${err.message}`, false);
+      setStatus(
+        '#cloudbase-auth-status',
+        `登录失败：${cloudBaseErrorMessage(err, '登录失败')}`,
+        false
+      );
     }
   }
 

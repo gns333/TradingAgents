@@ -57,13 +57,14 @@ TRADINGAGENTS_RUNTIME=cloudbase
 TRADINGAGENTS_DATABASE_URL=mysql+pymysql://USER:PASSWORD@HOST:3306/DATABASE
 TRADINGAGENTS_CLOUDBASE_ENV_ID=your-env-id
 TRADINGAGENTS_CLOUDBASE_REGION=ap-shanghai
+TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY=your-publishable-key
 TRADINGAGENTS_MASTER_KEY=URL_SAFE_BASE64_32_BYTE_KEY
 ```
 
 说明：
 
 - 数据库密码若包含 `@`、`:`、`/` 等字符，必须进行 URL 编码。
-- Web Auth 账号登录和注册只使用环境 ID 与地域初始化，不要把 Publishable Key 作为 `accessKey` 注入账号认证流程，否则它可能被当作用户 Access Token 并导致 `INVALID_ACCESS_TOKEN`。
+- `TRADINGAGENTS_CLOUDBASE_PUBLISHABLE_KEY` 是 CloudBase Web SDK 的公开客户端凭据，可在“身份认证 → API Key”中获取。它会返回给浏览器作为 SDK 的 `accessKey`，不是模型 API Key 或数据库密码。
 - `TRADINGAGENTS_MASTER_KEY` 必须是恰好 32 个随机字节的 URL-safe Base64，且应与数据库分离保存。
 - 不要设置 OpenAI、DeepSeek、Anthropic 等模型供应商 API Key 环境变量；部署完成后由管理员在 Web 后台录入。
 
@@ -79,7 +80,7 @@ $bytes = New-Object byte[] 32
 
 ## 4. 配置 Web Auth、HTTP 网关和安全域名
 
-1. 在 CloudBase“身份认证 → 登录方式”中启用“用户名密码登录”和“邮箱验证码”。
+1. 在 CloudBase“身份认证 → 登录方式”中启用“邮箱验证码”。
 2. 在 HTTP 网关中将域名路由到该云托管服务。
 3. 下列路径保持公开访问：
 
@@ -95,7 +96,7 @@ $bytes = New-Object byte[] 32
 
 HTTP 网关开启身份认证后，前端需要把 Web SDK 获取的 Access Token 放入 `Authorization: Bearer ...`；网关验证后再把用户上下文交给应用。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication) 和 [HTTP 访问说明](https://docs.cloudbase.net/run/develop/access/client)。
 
-页面中的“注册”使用 CloudBase 邮箱验证码流程创建身份账号。CloudBase 不支持无需验证的用户名密码自助注册；注册接口依次调用 `getVerification`、`verify` 和 `signUp`。参见 [CloudBase 用户名密码登录与注册](https://docs.cloudbase.net/authentication-v2/method/username-login)。
+页面中的“注册”和“登录”均使用 CloudBase 邮箱 OTP 流程：前端先分别调用 `signUp({ email })` 或 `signInWithOtp({ email })`，随后由 CloudBase 返回的 `verifyOtp({ token })` 校验验证码并建立登录态。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication)。
 
 ## 5. 初始化首个管理员
 

@@ -197,19 +197,18 @@ def test_workbench_supports_cloudbase_runtime_and_access_tokens():
     assert "async function loadRuntimeConfig()" in js
     assert "function loadCloudBaseSdk(url)" in js
     assert "async function restoreCloudBaseSession()" in js
-    assert "async function signInCloudBase(username, password)" in js
     assert "Authorization: `Bearer ${state.accessToken}`" in js
     assert "/api/runtime-config" in js
     assert "/api/session" in js
-    assert "accessKey: state.runtime.publishable_key" not in js
+    assert "accessKey: state.runtime.publishable_key" in js
 
 
 def test_cloudbase_login_ui_exists_without_removing_local_admin_login():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert 'id="cloudbase-auth-modal"' in html
-    assert 'id="cloudbase-username"' in html
-    assert 'id="cloudbase-password"' in html
+    assert 'id="cloudbase-login-email"' in html
+    assert 'id="cloudbase-login-code"' in html
     assert 'id="admin-modal"' in html
 
 
@@ -220,14 +219,15 @@ def test_cloudbase_email_registration_ui_and_sdk_flow_exist():
     assert 'id="show-cloudbase-login"' in html
     assert 'id="show-cloudbase-register"' in html
     assert 'id="cloudbase-register-email"' in html
-    assert 'id="cloudbase-register-password"' in html
     assert 'id="cloudbase-register-code"' in html
     assert 'id="cloudbase-send-code"' in html
     assert 'id="cloudbase-sign-up"' in html
-    assert "async function requestCloudBaseEmailCode(email)" in js
-    assert "async function signUpCloudBase(email, password, code)" in js
-    assert ".getVerification({ email, target: 'ANY' })" in js
-    assert ".verify({" in js
+    assert "async function requestCloudBaseEmailCode(email, mode)" in js
+    assert "async function verifyCloudBaseEmailCode(email, code, mode)" in js
+    assert "state.cloudbaseAuth.signInWithOtp" in js
+    assert "challenge.verifyOtp" in js
+    assert "signInCloudBase," not in js
+    assert "signUpCloudBase," not in js
     assert ".signUp({" in js
     assert "'/api/register'" in js
 
@@ -238,7 +238,6 @@ def test_cloudbase_registration_preserves_structured_sdk_errors():
     assert "function cloudBaseErrorMessage(error, fallbackMessage)" in js
     assert "error_description" in js
     assert "requestId" in js
-    assert "getVerification({ email, target: 'ANY' })" in js
     assert "cloudBaseErrorMessage(err, '验证码发送失败')" in js
 
 

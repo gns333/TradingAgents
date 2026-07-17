@@ -115,14 +115,17 @@
           <button class="auth-mode-tab" type="button" id="show-cloudbase-register" role="tab" aria-selected="false">注册</button>
         </div>
         <div class="cloudbase-auth-panel" id="cloudbase-login-panel">
-          <p class="helper-text">使用 CloudBase 身份认证账号登录。业务权限由服务端按 CloudBase UID 校验。</p>
+          <p class="helper-text">使用邮箱验证码登录。业务权限由服务端按 CloudBase UID 校验。</p>
           <div>
-            <label for="cloudbase-username">账号</label>
-            <input id="cloudbase-username" autocomplete="username" placeholder="邮箱、手机号或用户名">
+            <label for="cloudbase-login-email">邮箱</label>
+            <input id="cloudbase-login-email" type="email" autocomplete="email" placeholder="name@example.com">
           </div>
           <div>
-            <label for="cloudbase-password">密码</label>
-            <input id="cloudbase-password" type="password" autocomplete="current-password">
+            <label for="cloudbase-login-code">邮箱验证码</label>
+            <div class="inline-form">
+              <input id="cloudbase-login-code" inputmode="numeric" autocomplete="one-time-code" placeholder="验证码">
+              <button class="secondary-button" type="button" id="cloudbase-send-login-code">发送验证码</button>
+            </div>
           </div>
         </div>
         <div class="cloudbase-auth-panel" id="cloudbase-register-panel" hidden>
@@ -130,10 +133,6 @@
           <div>
             <label for="cloudbase-register-email">邮箱</label>
             <input id="cloudbase-register-email" type="email" autocomplete="email" placeholder="name@example.com">
-          </div>
-          <div>
-            <label for="cloudbase-register-password">密码</label>
-            <input id="cloudbase-register-password" type="password" autocomplete="new-password" minlength="8" maxlength="32" placeholder="8–32 位">
           </div>
           <div>
             <label for="cloudbase-register-code">邮箱验证码</label>
@@ -145,7 +144,7 @@
         </div>
         <div class="form-status" id="cloudbase-auth-status" aria-live="polite"></div>
         <div class="modal-actions">
-          <button type="button" id="cloudbase-sign-in">登录</button>
+          <button type="button" id="cloudbase-sign-in">验证码登录</button>
           <button type="button" id="cloudbase-sign-up" hidden>注册并提交审核</button>
         </div>
       </div>

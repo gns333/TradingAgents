@@ -43,6 +43,7 @@ def _cloud_runtime() -> WebRuntimeConfig:
         database_url="mysql+pymysql://unused",
         cloudbase_env_id="env-123",
         cloudbase_region="ap-shanghai",
+        cloudbase_publishable_key="public-key",
         master_key=b"k" * 32,
     )
 
@@ -315,6 +316,7 @@ def test_runtime_config_exposes_only_public_cloudbase_values(tmp_path: Path):
         "auth": "cloudbase",
         "env_id": "env-123",
         "region": "ap-shanghai",
+        "publishable_key": "public-key",
         "sdk_url": (
             "https://static.cloudbase.net/"
             "cloudbase-js-sdk/2.28.6/cloudbase.full.js"

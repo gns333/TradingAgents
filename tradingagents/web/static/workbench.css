@@ -1395,11 +1395,11 @@ textarea { min-height: 68px; resize: vertical; }
 .filter-chip { min-height: 28px; padding: 0 11px; border: 0; background: transparent; }
 .filter-chip.active { background: var(--accent-soft); }
 .history-list { gap: 6px; padding: 8px; max-height: calc(100dvh - 246px); }
-.history-item { display: block; }
+.history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .history-item:hover { border-color: var(--faint); }
 .history-item.active { border-color: color-mix(in srgb, var(--accent) 58%, var(--line)); background: color-mix(in srgb, var(--accent-soft) 38%, var(--surface-2)); }
 .history-item.active::before { top: 8px; bottom: 8px; width: 2px; }
-.history-open { width: 100%; gap: 7px; min-height: 66px; padding: 10px 48px 10px 13px; }
+.history-open { min-width: 0; width: auto; gap: 7px; min-height: 66px; padding: 10px 13px; }
 .history-open .ho-top { justify-content: flex-start; min-width: 0; }
 .history-open strong { min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .history-open .ho-code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
@@ -1409,16 +1409,15 @@ textarea { min-height: 68px; resize: vertical; }
 .history-open .ho-meta .ho-owner { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .history-open .ho-meta span + span:not([hidden])::before { content: "·"; margin-right: 7px; color: var(--line); }
 .history-delete {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  min-height: 28px;
-  padding: 0 7px;
-  border: 1px solid transparent;
-  border-left: 1px solid transparent;
+  position: static;
+  align-self: stretch;
+  transform: none;
+  min-height: 100%;
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid var(--line);
   color: var(--faint);
-  opacity: .65;
+  opacity: 1;
 }
 .history-item:hover .history-delete, .history-delete:focus-visible { opacity: 1; }
 .history-refresh { width: 32px; min-height: 32px; font-size: 18px; }
@@ -1517,6 +1516,6 @@ textarea { min-height: 68px; resize: vertical; }
   .admin-field.full, .admin-editor-actions { grid-column: 1; }
   .admin-editor-actions { flex-wrap: wrap; }
   .topbar-context { max-width: 55vw; overflow: hidden; text-overflow: ellipsis; }
-  .history-delete { right: 6px; width: 24px; padding: 0; font-size: 0; }
+  .history-delete { width: 32px; padding: 0; font-size: 0; }
   .history-delete::before { content: "×"; font-size: 16px; line-height: 1; }
 }

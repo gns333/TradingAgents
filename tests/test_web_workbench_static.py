@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -158,6 +159,18 @@ def test_workbench_js_contains_report_history_contract():
     assert "function deleteHistoryReport(id)" in js
     assert "/api/reports" in js
     assert "method: 'DELETE'" in js
+
+
+def test_report_history_card_reserves_a_separate_delete_column():
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert ".history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; }" in css
+    assert ".history-open { min-width: 0; width: auto;" in css
+
+    delete_rules = re.findall(r"\.history-delete\s*\{([^}]*)\}", css)
+    assert delete_rules
+    assert any("position: static;" in rule and "transform: none;" in rule for rule in delete_rules)
+    assert all("position: absolute;" not in rule for rule in delete_rules)
 
 
 def test_workbench_js_contains_provider_preset_contract():

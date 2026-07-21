@@ -234,12 +234,15 @@ def test_workbench_supports_cloudbase_runtime_and_access_tokens():
     assert "accessKey: state.runtime.publishable_key" not in js
 
 
-def test_cloudbase_login_ui_exists_without_removing_local_admin_login():
+def test_cloudbase_password_login_ui_exists_without_removing_local_admin_login():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     assert 'id="cloudbase-auth-modal"' in html
     assert 'id="cloudbase-login-email"' in html
-    assert 'id="cloudbase-login-code"' in html
+    assert 'id="cloudbase-login-password"' in html
+    assert 'autocomplete="current-password"' in html
+    assert 'id="cloudbase-login-code"' not in html
+    assert 'id="cloudbase-send-login-code"' not in html
     assert 'id="admin-modal"' in html
 
 
@@ -251,16 +254,37 @@ def test_cloudbase_email_registration_ui_and_sdk_flow_exist():
     assert 'id="show-cloudbase-register"' in html
     assert 'id="cloudbase-register-email"' in html
     assert 'id="cloudbase-register-code"' in html
+    assert 'id="cloudbase-register-password"' in html
+    assert 'id="cloudbase-register-confirm"' in html
     assert 'id="cloudbase-send-code"' in html
     assert 'id="cloudbase-sign-up"' in html
-    assert "async function requestCloudBaseEmailCode(email, mode)" in js
-    assert "async function verifyCloudBaseEmailCode(email, code, mode)" in js
-    assert "state.cloudbaseAuth.signInWithOtp" in js
+    assert "async function requestCloudBaseRegistrationCode(email, password)" in js
+    assert "async function verifyCloudBaseRegistrationCode(email, code)" in js
+    assert "state.cloudbaseAuth.signUp({ email, password })" in js
     assert "challenge.verifyOtp" in js
-    assert "signInCloudBase," not in js
-    assert "signUpCloudBase," not in js
-    assert ".signUp({" in js
+    assert "signInWithOtp" not in js
     assert "'/api/register'" in js
+
+
+def test_cloudbase_password_login_and_recovery_sdk_flows_exist():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert 'id="show-cloudbase-reset"' in html
+    assert 'id="cloudbase-reset-panel"' in html
+    assert 'id="cloudbase-reset-email"' in html
+    assert 'id="cloudbase-reset-code"' in html
+    assert 'id="cloudbase-reset-password"' in html
+    assert 'id="cloudbase-reset-confirm"' in html
+    assert 'id="cloudbase-send-reset-code"' in html
+    assert 'id="cloudbase-reset-password-submit"' in html
+    assert "state.cloudbaseAuth.signInWithPassword({ email, password })" in js
+    assert "state.cloudbaseAuth.resetPasswordForEmail(email)" in js
+    assert "pending.updateUser({ nonce: code, password })" in js
+    assert "function validateCloudBasePasswordFields(mode)" in js
+    assert "body.auth-open" in css
+    assert '.cloudbase-auth-modal[data-mode="reset"]' in css
 
 
 def test_cloudbase_registration_preserves_structured_sdk_errors():

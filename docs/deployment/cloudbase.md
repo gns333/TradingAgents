@@ -79,7 +79,7 @@ $bytes = New-Object byte[] 32
 
 ## 4. 配置 Web Auth、HTTP 网关和安全域名
 
-1. 在 CloudBase“身份认证 → 登录方式”中启用“邮箱验证码”。
+1. 在 CloudBase“身份认证 → 登录方式”中启用“邮箱验证码”和“用户名/密码”登录。应用使用邮箱作为密码登录标识。
 2. 在 HTTP 网关中将域名路由到该云托管服务。
 3. 下列路径保持公开访问：
 
@@ -95,7 +95,9 @@ $bytes = New-Object byte[] 32
 
 HTTP 网关开启身份认证后，前端需要把 Web SDK 获取的 Access Token 放入 `Authorization: Bearer ...`；网关验证后再把用户上下文交给应用。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication) 和 [HTTP 访问说明](https://docs.cloudbase.net/run/develop/access/client)。
 
-页面中的“注册”和“登录”均使用 CloudBase 邮箱 OTP 流程：前端先分别调用 `signUp({ email })` 或 `signInWithOtp({ email })`，随后由 CloudBase 返回的 `verifyOtp({ token })` 校验验证码并建立登录态。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication)。
+页面中的“注册”使用 CloudBase `signUp({ email, password })` 发出邮箱验证码，再由返回的 `verifyOtp({ token })` 完成注册；日常登录使用 `signInWithPassword({ email, password })`，不再发送验证码。“忘记密码”通过 `resetPasswordForEmail(email)` 发送验证码并设置新密码。密码始终由 CloudBase 身份服务保存，应用数据库不保存用户密码。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication)。
+
+从旧版邮箱验证码登录升级的已有用户若尚未设置密码，可直接使用“忘记密码”完成邮箱验证并设置首个密码。
 
 ## 5. 初始化首个管理员
 

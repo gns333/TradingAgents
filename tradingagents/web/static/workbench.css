@@ -88,6 +88,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+body.auth-open { overflow: hidden; }
 
 /* 数字等宽：价格、涨跌、指标、时间、计数 */
 .mono,
@@ -1050,25 +1051,106 @@ textarea { min-height: 68px; resize: vertical; }
 }
 .modal-header h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .modal-body { display: grid; gap: 10px; padding: 16px; }
+/* ---------------------------------------------------- CloudBase 认证 */
+.cloudbase-auth-backdrop { overflow-y: auto; overscroll-behavior: contain; }
+.cloudbase-auth-modal {
+  width: min(420px, 100%);
+  max-height: min(760px, calc(100dvh - 36px));
+  overflow-y: auto;
+}
+.cloudbase-auth-modal .modal-header { min-height: 58px; }
+.cloudbase-auth-modal .modal-header .icon-button { width: 44px; min-height: 44px; }
+.cloudbase-auth-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cloudbase-auth-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 750 12px/1 var(--sans);
+}
+.cloudbase-auth-brand strong { display: block; font-size: 14px; line-height: 1.2; }
+.cloudbase-auth-brand small { display: block; margin-top: 2px; color: var(--faint); font-size: 10px; line-height: 1.2; }
+.cloudbase-auth-content { display: grid; gap: 18px; padding: 22px 24px 24px; }
+.cloudbase-auth-heading { display: grid; gap: 5px; }
+.cloudbase-auth-heading-row { display: flex; align-items: center; gap: 8px; }
+.cloudbase-auth-heading h2 { margin: 0; font-size: 22px; line-height: 1.25; }
+.cloudbase-auth-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+.cloudbase-auth-back {
+  display: none;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 18px;
+}
+.cloudbase-auth-modal[data-mode="reset"] .cloudbase-auth-back { display: inline-grid; place-items: center; }
 .auth-mode-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius);
   background: var(--bg);
 }
+.cloudbase-auth-modal[data-mode="reset"] .auth-mode-tabs { display: none; }
 .auth-mode-tab {
-  min-height: 34px;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+.auth-mode-tab:hover { background: var(--surface-2); color: var(--text); }
+.auth-mode-tab.active { background: var(--accent-soft); color: var(--accent); }
+.cloudbase-auth-panel { display: grid; gap: 14px; margin: 0; }
+.cloudbase-auth-panel[hidden] { display: none; }
+.cloudbase-auth-field { display: grid; gap: 6px; min-width: 0; }
+.cloudbase-auth-field label { margin: 0; color: var(--text); }
+.cloudbase-auth-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cloudbase-auth-text-button {
+  width: auto;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+}
+.cloudbase-auth-text-button:hover { background: transparent; color: var(--accent-strong); }
+.cloudbase-auth-panel input:not([type="checkbox"]) { min-height: 48px; font-size: 16px; }
+.cloudbase-password-field { position: relative; }
+.cloudbase-password-field input { padding-right: 50px; }
+.cloudbase-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
   background: transparent;
   color: var(--muted);
 }
-.auth-mode-tab:hover { background: var(--surface-2); color: var(--text); }
-.auth-mode-tab.active { background: var(--accent); color: var(--on-accent); }
-.cloudbase-auth-panel { display: grid; gap: 10px; }
-.cloudbase-auth-panel[hidden] { display: none; }
-.cloudbase-auth-panel .helper-text { margin: 2px 0; }
+.cloudbase-password-toggle:hover { transform: translateY(-50%); background: var(--surface-2); color: var(--text); }
+.cloudbase-password-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.cloudbase-auth-code-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 8px; }
+.cloudbase-auth-code-button { min-height: 48px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
+.cloudbase-auth-helper { margin: 0; color: var(--faint); font-size: 11px; }
+.cloudbase-auth-submit { width: 100%; min-height: 48px; margin-top: 2px; font-size: 15px; }
+.cloudbase-auth-switch { margin: -4px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+.cloudbase-auth-switch button { vertical-align: baseline; }
+.cloudbase-auth-content > .form-status { margin: -8px 0 0; }
 
 /* ---------------------------------------------------- 主题切换 */
 .theme-toggle { position: relative; }
@@ -1577,4 +1659,32 @@ textarea { min-height: 68px; resize: vertical; }
   .report-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .history-mobile-back { order: -1; }
   .report-toolbar .report-identity { flex: 1; }
+  .cloudbase-auth-backdrop {
+    display: block;
+    padding: 0;
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+  .cloudbase-auth-modal {
+    width: 100%;
+    min-height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+  .cloudbase-auth-modal .modal-header {
+    padding: max(14px, env(safe-area-inset-top)) 18px 12px;
+    border-bottom-color: var(--line-soft);
+  }
+  .cloudbase-auth-content {
+    gap: 20px;
+    padding: 28px 20px max(28px, env(safe-area-inset-bottom));
+  }
+  .cloudbase-auth-heading h2 { font-size: 24px; }
+  .cloudbase-auth-heading p { font-size: 14px; }
+  .auth-mode-tab { min-height: 44px; }
+  .cloudbase-auth-panel { gap: 16px; }
+  .cloudbase-auth-code-row { grid-template-columns: minmax(0, 1fr) 112px; }
 }

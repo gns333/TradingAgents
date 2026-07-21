@@ -120,6 +120,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+body.auth-open { overflow: hidden; }
 
 .mono, .num, .price, .change, .event-count, .data-table td.num, .metric-value {
   font-family: var(--mono);
@@ -1058,6 +1059,131 @@ textarea { min-height: 68px; resize: vertical; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
 .modal-actions button { width: auto; }
 
+/* ---------------------------------------------------- 认证流程 Demo */
+.auth-backdrop { overflow-y: auto; overscroll-behavior: contain; }
+.auth-panel {
+  width: min(420px, 100%);
+  max-height: min(760px, calc(100dvh - 36px));
+  overflow-y: auto;
+}
+.auth-panel .modal-header { min-height: 58px; }
+.auth-panel .modal-header .icon-button { width: 44px; min-height: 44px; }
+.auth-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.auth-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 750 12px/1 var(--sans);
+}
+.auth-brand strong { display: block; font-size: 14px; line-height: 1.2; }
+.auth-brand small { display: block; margin-top: 2px; color: var(--faint); font-size: 10px; line-height: 1.2; }
+.auth-content { display: grid; gap: 18px; padding: 22px 24px 24px; }
+.auth-heading { display: grid; gap: 5px; }
+.auth-heading-row { display: flex; align-items: center; gap: 8px; }
+.auth-heading h2 { margin: 0; font-size: 22px; line-height: 1.25; }
+.auth-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+.auth-back {
+  display: none;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 18px;
+}
+.auth-panel[data-mode="reset"] .auth-back { display: inline-grid; place-items: center; }
+.auth-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.auth-panel[data-mode="reset"] .auth-mode-tabs { display: none; }
+.auth-mode-tab {
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+.auth-mode-tab:hover { background: var(--surface-2); color: var(--text); }
+.auth-mode-tab.active { background: var(--accent-soft); color: var(--accent); }
+.auth-form { display: grid; gap: 14px; }
+.auth-form[hidden] { display: none; }
+.auth-field { display: grid; gap: 6px; min-width: 0; }
+.auth-field label, .auth-field-label {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.auth-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.auth-text-button {
+  width: auto;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 550;
+}
+.auth-text-button:hover { background: transparent; color: var(--accent-strong); }
+.auth-form input { min-height: 48px; font-size: 16px; }
+.password-field { position: relative; }
+.password-field input { width: 100%; padding-right: 48px; }
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.password-toggle:hover { transform: translateY(-50%); background: var(--surface-2); color: var(--text); }
+.password-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.auth-code-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 8px; }
+.auth-code-button {
+  min-height: 48px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.auth-code-button:hover { border-color: var(--accent); background: var(--surface); color: var(--accent); }
+.auth-helper { margin: 0; color: var(--faint); font-size: 11px; }
+.auth-submit { width: 100%; min-height: 48px; margin-top: 2px; font-size: 15px; }
+.auth-status {
+  min-height: 20px;
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+.auth-status:empty { display: none; }
+.auth-status.success { color: var(--down); }
+.auth-status.error { color: var(--danger); }
+.auth-switch-copy { margin: -4px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+.auth-switch-copy button { vertical-align: baseline; }
+
 .theme-toggle { position: relative; }
 .theme-toggle .ico-sun { display: none; }
 [data-theme="light"] .theme-toggle .ico-sun { display: inline; }
@@ -1118,6 +1244,31 @@ textarea { min-height: 68px; resize: vertical; }
   .flow-current { max-width: 152px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-list { grid-auto-flow: row; grid-template-columns: repeat(3, 1fr); }
   .topbar-actions .secondary-button span { display: none; }
+  .auth-backdrop {
+    display: block;
+    padding: 0;
+    background: var(--bg);
+    backdrop-filter: none;
+  }
+  .auth-panel {
+    width: 100%;
+    min-height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+  .auth-panel .modal-header {
+    padding: max(14px, env(safe-area-inset-top)) 18px 12px;
+    border-bottom-color: var(--line-soft);
+  }
+  .auth-content { gap: 20px; padding: 28px 20px max(28px, env(safe-area-inset-bottom)); }
+  .auth-heading h2 { font-size: 24px; }
+  .auth-heading p { font-size: 14px; }
+  .auth-mode-tab { min-height: 44px; }
+  .auth-form { gap: 16px; }
+  .auth-code-row { grid-template-columns: minmax(0, 1fr) 112px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
@@ -1147,12 +1298,12 @@ textarea { min-height: 68px; resize: vertical; }
 
       <section class="identity-card">
         <div class="identity-head">
-          <h2>本地访问身份</h2>
-          <span class="dot-badge active">白名单已匹配</span>
+          <h2>CloudBase 身份</h2>
+          <span class="dot-badge pending" id="identity-auth-state">未登录</span>
         </div>
         <div class="identity-account">
-          <span class="identity-email-value" id="identity-email-value" title="analyst@example.com">analyst@example.com</span>
-          <button class="secondary-button identity-edit" type="button" id="identity-edit">更改</button>
+          <span class="identity-email-value" id="identity-email-value" title="登录后同步账号">登录后同步账号</span>
+          <button class="secondary-button identity-edit" type="button" id="identity-edit">登录</button>
         </div>
       </section>
     </aside>
@@ -1578,25 +1729,120 @@ textarea { min-height: 68px; resize: vertical; }
     </div>
   </div>
 
-  <div class="modal-backdrop" id="identity-modal" hidden>
-    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="identity-modal-title">
+  <div class="modal-backdrop auth-backdrop" id="auth-modal" hidden>
+    <section class="modal-panel auth-panel" id="auth-panel" data-mode="login" role="dialog" aria-modal="true" aria-labelledby="auth-title">
       <div class="modal-header">
-        <h2 id="identity-modal-title">更改本地访问身份</h2>
-        <button class="icon-button" type="button" id="identity-modal-close" aria-label="关闭" title="关闭">×</button>
+        <div class="auth-brand">
+          <span class="auth-brand-mark" aria-hidden="true">TA</span>
+          <span><strong>TradingAgents</strong><small>A股分析终端</small></span>
+        </div>
+        <button class="icon-button" type="button" id="auth-modal-close" aria-label="关闭" title="关闭">×</button>
       </div>
-      <div class="modal-body">
-        <div>
-          <label for="identity-email">白名单邮箱</label>
-          <input id="identity-email" type="email" value="analyst@example.com" autocomplete="email">
+      <div class="auth-content">
+        <div class="auth-heading">
+          <div class="auth-heading-row">
+            <button class="auth-back" type="button" id="auth-back" aria-label="返回登录" title="返回登录">←</button>
+            <h2 id="auth-title">欢迎回来</h2>
+          </div>
+          <p id="auth-subtitle">使用邮箱和密码登录，继续查看分析任务与报告。</p>
         </div>
-        <div class="modal-identity-status">
-          <span>当前匹配状态</span>
-          <span class="dot-badge active">已在白名单</span>
+
+        <div class="auth-mode-tabs" role="tablist" aria-label="账号操作">
+          <button class="auth-mode-tab active" type="button" data-auth-mode="login" role="tab" aria-selected="true">登录</button>
+          <button class="auth-mode-tab" type="button" data-auth-mode="register" role="tab" aria-selected="false">注册</button>
         </div>
-        <div class="modal-actions">
-          <button class="secondary-button" type="button" id="identity-modal-cancel">取消</button>
-          <button type="button" id="identity-modal-save">保存身份</button>
-        </div>
+
+        <form class="auth-form" id="auth-login-form" data-auth-form="login">
+          <div class="auth-field">
+            <label for="auth-login-email">邮箱</label>
+            <input id="auth-login-email" type="email" autocomplete="email" placeholder="name@example.com" required>
+          </div>
+          <div class="auth-field">
+            <div class="auth-label-row">
+              <label for="auth-login-password">密码</label>
+              <button class="auth-text-button" type="button" data-auth-mode="reset">忘记密码？</button>
+            </div>
+            <div class="password-field">
+              <input id="auth-login-password" type="password" autocomplete="current-password" placeholder="输入密码" required>
+              <button class="password-toggle" type="button" data-password-toggle="auth-login-password" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="auth-submit" type="submit">登录</button>
+          <p class="auth-status" data-auth-status="login" role="status" aria-live="polite"></p>
+          <p class="auth-switch-copy">还没有账号？ <button class="auth-text-button" type="button" data-auth-mode="register">创建账号</button></p>
+        </form>
+
+        <form class="auth-form" id="auth-register-form" data-auth-form="register" hidden>
+          <div class="auth-field">
+            <label for="auth-register-email">邮箱</label>
+            <input id="auth-register-email" type="email" autocomplete="email" placeholder="name@example.com" required>
+          </div>
+          <div class="auth-field">
+            <label for="auth-register-code">邮箱验证码</label>
+            <div class="auth-code-row">
+              <input id="auth-register-code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" pattern="[0-9]{6}" maxlength="6" required>
+              <button class="auth-code-button" type="button" data-send-code="register">发送验证码</button>
+            </div>
+          </div>
+          <div class="auth-field">
+            <label for="auth-register-password">设置密码</label>
+            <div class="password-field">
+              <input id="auth-register-password" type="password" autocomplete="new-password" placeholder="至少 8 位" minlength="8" required>
+              <button class="password-toggle" type="button" data-password-toggle="auth-register-password" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+            <p class="auth-helper">至少 8 位，建议同时包含字母和数字。</p>
+          </div>
+          <div class="auth-field">
+            <label for="auth-register-confirm">确认密码</label>
+            <div class="password-field">
+              <input id="auth-register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" minlength="8" required>
+              <button class="password-toggle" type="button" data-password-toggle="auth-register-confirm" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="auth-submit" type="submit">创建账号</button>
+          <p class="auth-status" data-auth-status="register" role="status" aria-live="polite"></p>
+          <p class="auth-switch-copy">已有账号？ <button class="auth-text-button" type="button" data-auth-mode="login">返回登录</button></p>
+        </form>
+
+        <form class="auth-form" id="auth-reset-form" data-auth-form="reset" hidden>
+          <div class="auth-field">
+            <label for="auth-reset-email">邮箱</label>
+            <input id="auth-reset-email" type="email" autocomplete="email" placeholder="name@example.com" required>
+          </div>
+          <div class="auth-field">
+            <label for="auth-reset-code">邮箱验证码</label>
+            <div class="auth-code-row">
+              <input id="auth-reset-code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" pattern="[0-9]{6}" maxlength="6" required>
+              <button class="auth-code-button" type="button" data-send-code="reset">发送验证码</button>
+            </div>
+          </div>
+          <div class="auth-field">
+            <label for="auth-reset-password">新密码</label>
+            <div class="password-field">
+              <input id="auth-reset-password" type="password" autocomplete="new-password" placeholder="至少 8 位" minlength="8" required>
+              <button class="password-toggle" type="button" data-password-toggle="auth-reset-password" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="auth-field">
+            <label for="auth-reset-confirm">确认新密码</label>
+            <div class="password-field">
+              <input id="auth-reset-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" minlength="8" required>
+              <button class="password-toggle" type="button" data-password-toggle="auth-reset-confirm" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="auth-submit" type="submit">重置密码</button>
+          <p class="auth-status" data-auth-status="reset" role="status" aria-live="polite"></p>
+        </form>
       </div>
     </section>
   </div>
@@ -1637,32 +1883,146 @@ textarea { min-height: 68px; resize: vertical; }
       html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
     });
 
-    const identityModal = document.getElementById('identity-modal');
-    const identityInput = document.getElementById('identity-email');
+    const authModal = document.getElementById('auth-modal');
+    const authPanel = document.getElementById('auth-panel');
     const identityValue = document.getElementById('identity-email-value');
-    function setIdentityModal(open) {
-      identityModal.hidden = !open;
-      if (open) {
-        identityInput.value = identityValue.textContent;
-        requestAnimationFrame(() => identityInput.focus());
-      }
+    const identityState = document.getElementById('identity-auth-state');
+    const identityButton = document.getElementById('identity-edit');
+    let demoAuthenticated = false;
+    const AUTH_COPY = {
+      login: ['欢迎回来', '使用邮箱和密码登录，继续查看分析任务与报告。'],
+      register: ['创建账号', '验证邮箱并设置密码，账号启用后即可开始分析。'],
+      reset: ['重置密码', '验证你的邮箱后，设置一个新的登录密码。']
+    };
+
+    function setAuthMode(mode) {
+      if (!AUTH_COPY[mode]) mode = 'login';
+      authPanel.dataset.mode = mode;
+      document.getElementById('auth-title').textContent = AUTH_COPY[mode][0];
+      document.getElementById('auth-subtitle').textContent = AUTH_COPY[mode][1];
+      document.querySelectorAll('.auth-mode-tab').forEach(tab => {
+        const active = tab.dataset.authMode === mode;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      document.querySelectorAll('[data-auth-form]').forEach(form => {
+        form.hidden = form.dataset.authForm !== mode;
+      });
+      document.querySelectorAll('.auth-status').forEach(status => {
+        status.textContent = '';
+        status.className = 'auth-status';
+      });
+      const focusTarget = document.querySelector(`[data-auth-form="${mode}"] input`);
+      if (!authModal.hidden) requestAnimationFrame(() => focusTarget?.focus());
     }
-    document.getElementById('identity-edit').addEventListener('click', () => setIdentityModal(true));
-    document.getElementById('identity-modal-close').addEventListener('click', () => setIdentityModal(false));
-    document.getElementById('identity-modal-cancel').addEventListener('click', () => setIdentityModal(false));
-    document.getElementById('identity-modal-save').addEventListener('click', () => {
-      if (!identityInput.reportValidity()) return;
-      identityValue.textContent = identityInput.value.trim();
-      identityValue.title = identityInput.value.trim();
-      setIdentityModal(false);
+
+    function setAuthModal(open, mode = 'login') {
+      authModal.hidden = !open;
+      document.body.classList.toggle('auth-open', open);
+      if (open) setAuthMode(mode);
+    }
+
+    function setAuthStatus(mode, message, kind = '') {
+      const status = document.querySelector(`[data-auth-status="${mode}"]`);
+      if (!status) return;
+      status.textContent = message;
+      status.className = `auth-status ${kind}`.trim();
+    }
+
+    identityButton.addEventListener('click', () => {
+      if (!demoAuthenticated) {
+        setAuthModal(true, 'login');
+        return;
+      }
+      demoAuthenticated = false;
+      identityValue.textContent = '登录后同步账号';
+      identityValue.title = '登录后同步账号';
+      identityState.textContent = '未登录';
+      identityState.className = 'dot-badge pending';
+      identityButton.textContent = '登录';
     });
-    identityModal.addEventListener('click', event => {
-      if (event.target === identityModal) setIdentityModal(false);
+    document.getElementById('auth-modal-close').addEventListener('click', () => setAuthModal(false));
+    document.getElementById('auth-back').addEventListener('click', () => setAuthMode('login'));
+    document.querySelectorAll('[data-auth-mode]').forEach(button => {
+      button.addEventListener('click', () => setAuthMode(button.dataset.authMode));
+    });
+
+    document.querySelectorAll('[data-password-toggle]').forEach(button => {
+      button.addEventListener('click', () => {
+        const input = document.getElementById(button.dataset.passwordToggle);
+        const reveal = input.type === 'password';
+        input.type = reveal ? 'text' : 'password';
+        button.setAttribute('aria-label', reveal ? '隐藏密码' : '显示密码');
+        button.title = reveal ? '隐藏密码' : '显示密码';
+      });
+    });
+
+    document.querySelectorAll('[data-send-code]').forEach(button => {
+      button.addEventListener('click', () => {
+        const mode = button.dataset.sendCode;
+        const email = document.getElementById(`auth-${mode}-email`);
+        if (!email.reportValidity()) return;
+        let remaining = 59;
+        button.disabled = true;
+        button.textContent = `${remaining} 秒后重发`;
+        setAuthStatus(mode, `验证码已发送至 ${email.value.trim()}`, 'success');
+        const timer = window.setInterval(() => {
+          remaining -= 1;
+          button.textContent = `${remaining} 秒后重发`;
+          if (remaining > 0) return;
+          window.clearInterval(timer);
+          button.disabled = false;
+          button.textContent = '重新发送';
+        }, 1000);
+      });
+    });
+
+    function validateMatchingPasswords(mode) {
+      const password = document.getElementById(`auth-${mode}-password`);
+      const confirm = document.getElementById(`auth-${mode}-confirm`);
+      confirm.setCustomValidity(password.value === confirm.value ? '' : '两次输入的密码不一致');
+      return confirm.reportValidity();
+    }
+    ['register', 'reset'].forEach(mode => {
+      const password = document.getElementById(`auth-${mode}-password`);
+      const confirm = document.getElementById(`auth-${mode}-confirm`);
+      [password, confirm].forEach(input => input.addEventListener('input', () => {
+        confirm.setCustomValidity('');
+      }));
+    });
+
+    document.getElementById('auth-login-form').addEventListener('submit', event => {
+      event.preventDefault();
+      const email = document.getElementById('auth-login-email').value.trim();
+      setAuthStatus('login', '登录成功，正在进入工作台…', 'success');
+      demoAuthenticated = true;
+      identityValue.textContent = email;
+      identityValue.title = email;
+      identityState.textContent = '已登录';
+      identityState.className = 'dot-badge active';
+      identityButton.textContent = '退出';
+    });
+
+    document.getElementById('auth-register-form').addEventListener('submit', event => {
+      event.preventDefault();
+      if (!validateMatchingPasswords('register')) return;
+      setAuthStatus('register', '注册申请已提交，管理员启用后即可登录。', 'success');
+    });
+
+    document.getElementById('auth-reset-form').addEventListener('submit', event => {
+      event.preventDefault();
+      if (!validateMatchingPasswords('reset')) return;
+      setAuthStatus('reset', '密码已重置，请返回登录。', 'success');
+    });
+
+    authModal.addEventListener('click', event => {
+      if (event.target === authModal) setAuthModal(false);
     });
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !identityModal.hidden) setIdentityModal(false);
+      if (event.key === 'Escape' && !authModal.hidden) setAuthModal(false);
     });
-    if (new URLSearchParams(window.location.search).get('identity') === 'edit') setIdentityModal(true);
+    const initialAuthMode = new URLSearchParams(window.location.search).get('auth');
+    if (AUTH_COPY[initialAuthMode]) setAuthModal(true, initialAuthMode);
 
     // 当前报告 Tab：只有 market / decision 两页有示例内容，其余显示占位
     document.querySelectorAll('.report-tabs[data-report="live"] .report-tab').forEach(tab => {

@@ -103,50 +103,120 @@
     </section>
   </div>
 
-  <div class="modal-backdrop" id="cloudbase-auth-modal" hidden>
-    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="cloudbase-auth-title">
+  <div class="modal-backdrop cloudbase-auth-backdrop" id="cloudbase-auth-modal" hidden>
+    <section class="modal-panel cloudbase-auth-modal" id="cloudbase-auth-panel" data-mode="login" role="dialog" aria-modal="true" aria-labelledby="cloudbase-auth-title">
       <div class="modal-header">
-        <h2 id="cloudbase-auth-title">登录 TradingAgents</h2>
-        <button class="icon-button" type="button" id="close-cloudbase-auth-modal" aria-label="关闭">×</button>
+        <div class="cloudbase-auth-brand">
+          <span class="cloudbase-auth-brand-mark" aria-hidden="true">TA</span>
+          <span><strong>TradingAgents</strong><small>A股分析终端</small></span>
+        </div>
+        <button class="icon-button" type="button" id="close-cloudbase-auth-modal" aria-label="关闭" title="关闭">×</button>
       </div>
-      <div class="modal-body">
+      <div class="cloudbase-auth-content">
+        <div class="cloudbase-auth-heading">
+          <div class="cloudbase-auth-heading-row">
+            <button class="cloudbase-auth-back" type="button" id="cloudbase-auth-back" aria-label="返回登录" title="返回登录">←</button>
+            <h2 id="cloudbase-auth-title">欢迎回来</h2>
+          </div>
+          <p id="cloudbase-auth-subtitle">使用邮箱和密码登录，继续查看分析任务与报告。</p>
+        </div>
+
         <div class="auth-mode-tabs" role="tablist" aria-label="账号操作">
           <button class="auth-mode-tab active" type="button" id="show-cloudbase-login" role="tab" aria-selected="true">登录</button>
           <button class="auth-mode-tab" type="button" id="show-cloudbase-register" role="tab" aria-selected="false">注册</button>
         </div>
-        <div class="cloudbase-auth-panel" id="cloudbase-login-panel">
-          <p class="helper-text">使用邮箱验证码登录。业务权限由服务端按 CloudBase UID 校验。</p>
-          <div>
+
+        <form class="cloudbase-auth-panel" id="cloudbase-login-panel" data-auth-form="login">
+          <div class="cloudbase-auth-field">
             <label for="cloudbase-login-email">邮箱</label>
-            <input id="cloudbase-login-email" type="email" autocomplete="email" placeholder="name@example.com">
+            <input id="cloudbase-login-email" type="email" autocomplete="email" placeholder="name@example.com" required>
           </div>
-          <div>
-            <label for="cloudbase-login-code">邮箱验证码</label>
-            <div class="inline-form">
-              <input id="cloudbase-login-code" inputmode="numeric" autocomplete="one-time-code" placeholder="验证码">
-              <button class="secondary-button" type="button" id="cloudbase-send-login-code">发送验证码</button>
+          <div class="cloudbase-auth-field">
+            <div class="cloudbase-auth-label-row">
+              <label for="cloudbase-login-password">密码</label>
+              <button class="cloudbase-auth-text-button" type="button" id="show-cloudbase-reset">忘记密码？</button>
+            </div>
+            <div class="cloudbase-password-field">
+              <input id="cloudbase-login-password" type="password" autocomplete="current-password" placeholder="输入密码" required>
+              <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-login-password" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
             </div>
           </div>
-        </div>
-        <div class="cloudbase-auth-panel" id="cloudbase-register-panel" hidden>
-          <p class="helper-text">通过 CloudBase 邮箱验证码注册。注册后需管理员在用户管理中启用账号。</p>
-          <div>
+          <button class="cloudbase-auth-submit" type="submit" id="cloudbase-sign-in">登录</button>
+          <p class="cloudbase-auth-switch">还没有账号？ <button class="cloudbase-auth-text-button" type="button" data-auth-mode="register">创建账号</button></p>
+        </form>
+
+        <form class="cloudbase-auth-panel" id="cloudbase-register-panel" data-auth-form="register" hidden>
+          <div class="cloudbase-auth-field">
             <label for="cloudbase-register-email">邮箱</label>
-            <input id="cloudbase-register-email" type="email" autocomplete="email" placeholder="name@example.com">
+            <input id="cloudbase-register-email" type="email" autocomplete="email" placeholder="name@example.com" required>
           </div>
-          <div>
+          <div class="cloudbase-auth-field">
             <label for="cloudbase-register-code">邮箱验证码</label>
-            <div class="inline-form">
-              <input id="cloudbase-register-code" inputmode="numeric" autocomplete="one-time-code" placeholder="验证码">
-              <button class="secondary-button" type="button" id="cloudbase-send-code">发送验证码</button>
+            <div class="cloudbase-auth-code-row">
+              <input id="cloudbase-register-code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" pattern="[0-9]{6}" maxlength="6" required>
+              <button class="secondary-button cloudbase-auth-code-button" type="button" id="cloudbase-send-code">发送验证码</button>
             </div>
           </div>
-        </div>
+          <div class="cloudbase-auth-field">
+            <label for="cloudbase-register-password">设置密码</label>
+            <div class="cloudbase-password-field">
+              <input id="cloudbase-register-password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" minlength="8" maxlength="64" required>
+              <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-register-password" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+            <p class="cloudbase-auth-helper">8-64 位，至少包含一个字母和一个数字。</p>
+          </div>
+          <div class="cloudbase-auth-field">
+            <label for="cloudbase-register-confirm">确认密码</label>
+            <div class="cloudbase-password-field">
+              <input id="cloudbase-register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" minlength="8" maxlength="64" required>
+              <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-register-confirm" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="cloudbase-auth-submit" type="submit" id="cloudbase-sign-up">创建账号</button>
+          <p class="cloudbase-auth-switch">已有账号？ <button class="cloudbase-auth-text-button" type="button" data-auth-mode="login">返回登录</button></p>
+        </form>
+
+        <form class="cloudbase-auth-panel" id="cloudbase-reset-panel" data-auth-form="reset" hidden>
+          <div class="cloudbase-auth-field">
+            <label for="cloudbase-reset-email">邮箱</label>
+            <input id="cloudbase-reset-email" type="email" autocomplete="email" placeholder="name@example.com" required>
+          </div>
+          <div class="cloudbase-auth-field">
+            <label for="cloudbase-reset-code">邮箱验证码</label>
+            <div class="cloudbase-auth-code-row">
+              <input id="cloudbase-reset-code" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位验证码" pattern="[0-9]{6}" maxlength="6" required>
+              <button class="secondary-button cloudbase-auth-code-button" type="button" id="cloudbase-send-reset-code">发送验证码</button>
+            </div>
+          </div>
+          <div class="cloudbase-auth-field">
+            <label for="cloudbase-reset-password">新密码</label>
+            <div class="cloudbase-password-field">
+              <input id="cloudbase-reset-password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" minlength="8" maxlength="64" required>
+              <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-reset-password" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+            <p class="cloudbase-auth-helper">8-64 位，至少包含一个字母和一个数字。</p>
+          </div>
+          <div class="cloudbase-auth-field">
+            <label for="cloudbase-reset-confirm">确认新密码</label>
+            <div class="cloudbase-password-field">
+              <input id="cloudbase-reset-confirm" type="password" autocomplete="new-password" placeholder="再次输入新密码" minlength="8" maxlength="64" required>
+              <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-reset-confirm" aria-label="显示密码" title="显示密码">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
+              </button>
+            </div>
+          </div>
+          <button class="cloudbase-auth-submit" type="submit" id="cloudbase-reset-password-submit">重置密码</button>
+        </form>
+
         <div class="form-status" id="cloudbase-auth-status" aria-live="polite"></div>
-        <div class="modal-actions">
-          <button type="button" id="cloudbase-sign-in">验证码登录</button>
-          <button type="button" id="cloudbase-sign-up" hidden>注册并提交审核</button>
-        </div>
       </div>
     </section>
   </div>

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from tradingagents.web.admin_store import AdminStore
 from tradingagents.web.events import AnalysisEvent
-from tradingagents.web.task_service import AnalysisTaskService
+from tradingagents.web.task_service import AnalysisTaskService, _summarize_decision
 
 
 def _run_payload(owner_key: str, stock_name: str = "贵州茅台") -> dict:
@@ -18,6 +18,17 @@ def _run_payload(owner_key: str, stock_name: str = "贵州茅台") -> dict:
         "asset_type": "stock",
         "analysts": ["market"],
     }
+
+
+def test_decision_summary_uses_portfolio_manager_rating_field():
+    report = (
+        "**Rating**: Underweight\n\n"
+        "**Executive Summary**: Reduce exposure.\n\n"
+        "Risk control: 严禁左侧加仓，等待趋势确认。"
+    )
+
+    assert _summarize_decision(report) == "Underweight"
+    assert _summarize_decision("没有结构化评级的普通正文") == ""
 
 
 def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):
@@ -49,6 +60,13 @@ def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):
             "report_section_updated",
             {"section": "market_report", "content": "# 市场\n\n看多"},
         ),
+        AnalysisEvent(
+            "report_section_updated",
+            {
+                "section": "final_trade_decision",
+                "content": "**Rating**: Underweight\n\n严禁左侧加仓。",
+            },
+        ),
         AnalysisEvent("run_completed", {"final_state": {}}),
     ]
     service = AnalysisTaskService(
@@ -66,6 +84,7 @@ def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):
     assert report["stock_name"] == "贵州茅台"
     assert report["owner_key"] == "uid:u1"
     assert report["sections"]["market_report"].startswith("# 市场")
+    assert report["decision"] == "Underweight"
     assert operation_order.index("report:saved") < operation_order.index(
         "event:run_completed"
     )

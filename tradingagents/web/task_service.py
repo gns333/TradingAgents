@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
+from tradingagents.agents.utils.rating import parse_rating
+
 from .events import AnalysisEvent
 from .runner import AnalysisRequest, create_graph_for_request, stream_analysis_events
 from .store import ApplicationStore
@@ -15,11 +17,9 @@ MAX_EXECUTOR_WORKERS = 8
 
 
 def _summarize_decision(text: str) -> str:
-    for line in str(text or "").splitlines():
-        stripped = line.strip().lstrip("#").strip()
-        if stripped:
-            return stripped[:120]
-    return ""
+    # The Portfolio Manager already returns a structured five-tier rating. Keep
+    # that canonical value instead of making the UI infer a decision from prose.
+    return parse_rating(str(text or ""), default="")
 
 
 class AnalysisTaskService:

@@ -139,6 +139,11 @@ def test_workbench_js_contains_report_center_contract():
     assert "function renderMarkdown(markdown)" in js
     assert "function renderReportCenter()" in js
     assert "function renderReportPreview()" in js
+    assert "function clearHistorySelection(" in js
+    assert "function setHistoryMobileDetail(open)" in js
+    assert "history-detail-open" in js
+    assert "report-tab-scroll" in js
+    assert "scrollIntoView({ behavior: 'smooth', block: 'start' })" in js
     assert "final_trade_decision" in js
 
 
@@ -164,8 +169,11 @@ def test_workbench_js_contains_report_history_contract():
 def test_report_history_card_reserves_a_separate_delete_column():
     css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
 
-    assert ".history-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; }" in css
-    assert ".history-open { min-width: 0; width: auto;" in css
+    assert ".history-item { display: grid; grid-template-columns: minmax(0, 1fr) 44px; }" in css
+    assert ".history-open { min-width: 0; width: 100%; max-width: 100%;" in css
+    assert ".history-open .ho-owner {" in css
+    assert "text-overflow: ellipsis;" in css
+    assert "#reports-root.history-detail-open .history-panel { display: none; }" in css
 
     delete_rules = re.findall(r"\.history-delete\s*\{([^}]*)\}", css)
     assert delete_rules

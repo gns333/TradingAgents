@@ -112,13 +112,37 @@
     'research_manager', 'trader', 'portfolio_manager'
   ];
 
-  // Map a free-text decision / final report to a Buy / Sell / Hold badge.
+  const DECISION_VALUES = {
+    buy: { kind: 'buy', label: '买入' },
+    overweight: { kind: 'buy', label: '买入' },
+    买入: { kind: 'buy', label: '买入' },
+    增持: { kind: 'buy', label: '买入' },
+    高配: { kind: 'buy', label: '买入' },
+    sell: { kind: 'sell', label: '卖出' },
+    underweight: { kind: 'sell', label: '卖出' },
+    卖出: { kind: 'sell', label: '卖出' },
+    减持: { kind: 'sell', label: '卖出' },
+    低配: { kind: 'sell', label: '卖出' },
+    hold: { kind: 'hold', label: '持有' },
+    neutral: { kind: 'hold', label: '持有' },
+    持有: { kind: 'hold', label: '持有' },
+    中性: { kind: 'hold', label: '持有' },
+    观望: { kind: 'hold', label: '持有' }
+  };
+
+  // New reports persist the Portfolio Manager's structured rating. During a
+  // live run, read only its rendered Rating line; never infer from report prose.
   function classifyDecision(text) {
-    const value = String(text || '').toLowerCase();
-    if (/\b(buy|long|overweight)\b|买入|看多|增持|加仓/.test(value)) return { kind: 'buy', label: '买入' };
-    if (/\b(sell|short|underweight)\b|卖出|看空|减持|清仓|减仓/.test(value)) return { kind: 'sell', label: '卖出' };
-    if (/\b(hold|neutral)\b|持有|观望|中性/.test(value)) return { kind: 'hold', label: '持有' };
-    return null;
+    const lines = String(text || '')
+      .split(/\r?\n/)
+      .map(line => line.replace(/^[\s#>*-]+/, '').replaceAll('**', '').trim())
+      .filter(Boolean);
+    const ratingLine = lines.find(line => /^(?:rating|投资评级|评级)\s*[：:-]/i.test(line));
+    const statement = ratingLine
+      ? ratingLine.replace(/^(?:rating|投资评级|评级)\s*[：:-]\s*/i, '')
+      : lines.length === 1 ? lines[0] : '';
+    const match = statement.match(/^(?:strong\s+)?(buy|overweight|hold|neutral|underweight|sell|买入|增持|高配|持有|中性|观望|减持|低配|卖出)(?:\b|[（(\s，。；;]|$)/i);
+    return match ? DECISION_VALUES[match[1].toLowerCase()] || null : null;
   }
 
   function decisionBadgeHtml(text) {
@@ -1439,11 +1463,37 @@
     }
     const active = available.includes(activeSection) ? activeSection : available[0];
     container.textContent = '';
+    const tabRail = document.createElement('div');
+    tabRail.className = 'report-tab-rail';
     const tabs = document.createElement('div');
     tabs.className = 'report-tabs';
     tabs.setAttribute('role', 'tablist');
+    const previous = document.createElement('button');
+    previous.type = 'button';
+    previous.className = 'report-tab-scroll previous';
+    previous.setAttribute('aria-label', '查看前面的报告标签');
+    previous.title = '前面的报告';
+    previous.textContent = '‹';
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'report-tab-scroll next';
+    next.setAttribute('aria-label', '查看更多报告标签');
+    next.title = '更多报告';
+    next.textContent = '›';
     const panel = document.createElement('article');
     panel.className = 'report-article markdown';
+
+    const updateTabScrollControls = () => {
+      const remaining = tabs.scrollWidth - tabs.clientWidth - tabs.scrollLeft;
+      tabRail.classList.toggle('can-scroll-previous', tabs.scrollLeft > 4);
+      tabRail.classList.toggle('can-scroll-next', remaining > 4);
+    };
+    const scrollTabs = direction => {
+      tabs.scrollBy({ left: direction * Math.max(180, tabs.clientWidth * .72), behavior: 'smooth' });
+    };
+    previous.addEventListener('click', () => scrollTabs(-1));
+    next.addEventListener('click', () => scrollTabs(1));
+    tabs.addEventListener('scroll', updateTabScrollControls, { passive: true });
 
     const paint = section => {
       tabs.querySelectorAll('.report-tab').forEach(tab => {
@@ -1457,6 +1507,9 @@
       const badge = section === 'final_trade_decision' ? decisionBadgeHtml(body) : '';
       panel.innerHTML = (badge ? `<div class="report-summary-head">${badge}</div>` : '')
         + renderMarkdown(body);
+      tabs.querySelector(`[data-section="${section}"]`)?.scrollIntoView({
+        behavior: 'smooth', block: 'nearest', inline: 'nearest'
+      });
       if (typeof onSelect === 'function') onSelect(section);
     };
 
@@ -1473,9 +1526,13 @@
       tabs.appendChild(tab);
     });
 
-    container.appendChild(tabs);
+    tabRail.appendChild(previous);
+    tabRail.appendChild(tabs);
+    tabRail.appendChild(next);
+    container.appendChild(tabRail);
     container.appendChild(panel);
     paint(active);
+    requestAnimationFrame(updateTabScrollControls);
   }
 
   // Live current report inside the analysis view.
@@ -1549,6 +1606,7 @@
         </section>
         <section class="panel report-detail-panel">
           <div class="report-toolbar" id="history-summary">
+            <button class="history-mobile-back" type="button" id="history-mobile-back" aria-label="返回历史报告列表" hidden>← 报告列表</button>
             <div class="report-identity">
               <div class="report-identity-main">
                 <span class="report-code" id="history-detail-title">报告详情</span>
@@ -1562,6 +1620,10 @@
       </div>
     `;
     qs('#reload-history')?.addEventListener('click', loadReportHistory);
+    qs('#history-mobile-back')?.addEventListener('click', () => {
+      setHistoryMobileDetail(false);
+      qs('.history-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     const search = qs('#history-search');
     if (search) {
       search.value = state.historyQuery;
@@ -1596,14 +1658,37 @@
     });
   }
 
+  function clearHistorySelection(message = '选择一份历史报告后查看完整内容') {
+    state.historyActiveId = null;
+    state.historyReport = null;
+    state.historyActiveSection = '';
+    setText('#history-detail-title', '报告详情');
+    setText('#history-detail-name', '');
+    setText('#history-detail-meta', message);
+    qs('#history-summary')?.querySelector('.decision-badge')?.remove();
+    const detail = qs('#history-detail');
+    if (detail) detail.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+    setHistoryMobileDetail(false);
+  }
+
+  function setHistoryMobileDetail(open) {
+    qs('#reports-root')?.classList.toggle('history-detail-open', Boolean(open));
+    const back = qs('#history-mobile-back');
+    if (back) back.hidden = !open;
+  }
+
   function renderHistoryList() {
     const list = qs('#history-list');
     if (!list) return;
     if (!state.history.length) {
+      clearHistorySelection('暂无历史报告');
       list.innerHTML = '<div class="empty-state">暂无历史报告，完成一次分析后自动归档</div>';
       return;
     }
     const items = filteredHistory();
+    if (state.historyActiveId && !items.some(item => item.id === state.historyActiveId)) {
+      clearHistorySelection('当前报告不符合搜索或筛选条件');
+    }
     if (!items.length) {
       list.innerHTML = '<div class="empty-state">没有符合筛选条件的报告</div>';
       return;
@@ -1617,9 +1702,10 @@
       open.type = 'button';
       open.className = 'history-open';
       open.innerHTML = '<div class="ho-top"><strong><span class="ho-code"></span><span class="ho-name"></span></strong></div>'
-        + '<div class="ho-meta"><span class="ho-trade-date"></span><span class="ho-created"></span><span class="ho-owner"></span></div>';
+        + '<div class="ho-meta"><span class="ho-trade-date"></span><span class="ho-created"></span></div>'
+        + '<span class="ho-owner"></span>';
       open.querySelector('.ho-code').textContent = item.ticker || '未知代码';
-      open.querySelector('.ho-name').textContent = item.stock_name ? ` · ${item.stock_name}` : '';
+      open.querySelector('.ho-name').textContent = ` · ${item.stock_name || '名称未记录'}`;
       const badge = decisionBadgeHtml(item.decision);
       open.querySelector('.ho-top').insertAdjacentHTML('beforeend', badge || '<span class="tag">已归档</span>');
       const owner = isAdminSession()
@@ -1654,6 +1740,11 @@
       state.historyActiveSection = '';
       renderHistoryList();
       renderHistoryDetail();
+      if (window.matchMedia('(max-width: 1024px)').matches) {
+        requestAnimationFrame(() => {
+          qs('.report-detail-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      }
     } catch (err) {
       setText('#history-detail-meta', `加载失败：${err.message}`);
     }
@@ -1663,6 +1754,7 @@
     const detail = qs('#history-detail');
     const report = state.historyReport;
     if (!detail || !report) return;
+    setHistoryMobileDetail(true);
     setText('#history-detail-title', report.ticker || '未知代码');
     setText('#history-detail-name', report.stock_name || '');
     const moduleCount = (report.analysts || []).length;

@@ -574,10 +574,16 @@
   }
 
   async function apiJson(url, options = {}) {
-    if (state.runtime.auth === 'cloudbase' && state.cloudbaseAuth && state.accessToken && options.headers) {
+    if (state.runtime.auth === 'cloudbase' && state.cloudbaseAuth && state.accessToken) {
       const tokenResult = await state.cloudbaseAuth.getAccessToken();
       state.accessToken = tokenResult?.accessToken || tokenResult?.data?.accessToken || state.accessToken;
-      options = { ...options, headers: { ...options.headers, Authorization: `Bearer ${state.accessToken}` } };
+      options = {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${state.accessToken}`
+        }
+      };
     }
     const response = await fetch(url, options);
     const data = await response.json().catch(() => ({}));

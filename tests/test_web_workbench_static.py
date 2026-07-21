@@ -122,6 +122,16 @@ def test_workbench_polling_uses_authenticated_api_requests():
     assert "state.pollTimer = setTimeout" in js
 
 
+def test_api_json_authenticates_headerless_cloudbase_requests():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    api_start = js.index("async function apiJson(url, options = {})")
+    api_body = js[api_start : api_start + 1000]
+    assert "&& options.headers" not in api_body
+    assert "...(options.headers || {})" in api_body
+    assert "Authorization: `Bearer ${state.accessToken}`" in api_body
+
+
 def test_workbench_js_contains_report_center_contract():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 

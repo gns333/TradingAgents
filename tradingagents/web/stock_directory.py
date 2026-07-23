@@ -1,20 +1,18 @@
-"""A-share stock directory for the web workbench autocomplete.
+"""China-stock directory for the web workbench autocomplete.
 
-The directory powers the "search by code or name" experience on the analysis
-form. It is intentionally dependency-light:
+The directory powers search by code or name on the analysis form:
 
-* A curated seed list of well-known Mainland China equities ships in-process so
-  autocomplete works offline and in tests without any network access.
-* When the optional ``akshare`` dependency is installed, the full A-share code
-  and name table is fetched once and cached on disk, then merged over the seed
-  list so the directory stays comprehensive for real deployments.
+* A curated Mainland A-share seed works offline.
+* AKShare A-share and Hong Kong snapshots are cached independently on disk and
+  merged into one searchable directory when the optional dependency is present.
 
-Lookups are purely syntactic/substring based, mirroring the philosophy of
-``china_symbol_utils`` (no remote call on the hot path).
+Lookups stay purely local on the request hot path; remote refresh happens only
+when the lazy directory is first populated and its weekly cache is stale.
 """
 
 from __future__ import annotations
 
+import importlib
 import json
 import time
 from dataclasses import dataclass
@@ -22,10 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from ..dataflows.china_symbol_utils import infer_exchange, parse_china_symbol
+from ..dataflows.hong_kong_symbol_utils import parse_hong_kong_symbol
 
 _CACHE_DIR = Path.home() / ".tradingagents" / "cache"
 _CACHE_FILE = _CACHE_DIR / "a_share_directory.json"
-_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7  # refresh the akshare snapshot weekly
+_HK_CACHE_FILE = _CACHE_DIR / "hong_kong_stock_directory.json"
+_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7  # refresh AKShare snapshots weekly
 
 
 # A compact, hand-maintained seed covering the most frequently analysed A-share
@@ -118,11 +118,11 @@ _SEED_STOCKS: tuple[tuple[str, str], ...] = (
 
 @dataclass(frozen=True)
 class StockEntry:
-    """One A-share instrument in the directory."""
+    """One Mainland China or Hong Kong instrument in the directory."""
 
-    code: str        # canonical symbol, e.g. "600519.SH"
-    name: str        # Chinese display name
-    bare_code: str   # six-digit code, e.g. "600519"
+    code: str  # canonical symbol, e.g. "600519.SH"
+    name: str  # Chinese display name
+    bare_code: str  # six-digit code, e.g. "600519"
 
     def as_dict(self) -> dict[str, str]:
         return {"code": self.code, "name": self.name, "bare_code": self.bare_code}
@@ -146,28 +146,53 @@ def _build_seed_entries() -> dict[str, StockEntry]:
     return entries
 
 
-def _load_cached_akshare_entries() -> dict[str, StockEntry]:
-    """Load a previously cached akshare snapshot, refreshing it when stale."""
+def _import_akshare() -> Any | None:
     try:
-        if _CACHE_FILE.exists():
-            age = time.time() - _CACHE_FILE.stat().st_mtime
+        return importlib.import_module("akshare")
+    except Exception:  # noqa: BLE001 - AKShare is an optional extra
+        return None
+
+
+def _load_cached_entries(
+    cache_file: Path,
+    fetcher: Any,
+    converter: Any,
+) -> dict[str, StockEntry]:
+    """Load a cached AKShare snapshot, refreshing it when stale."""
+    try:
+        if cache_file.exists():
+            age = time.time() - cache_file.stat().st_mtime
             if age < _CACHE_TTL_SECONDS:
-                raw = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
-                return _entries_from_raw(raw)
+                raw = json.loads(cache_file.read_text(encoding="utf-8"))
+                return converter(raw)
     except (OSError, ValueError):
         pass
 
-    snapshot = _fetch_akshare_directory()
+    snapshot = fetcher()
     if snapshot:
         try:
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            _CACHE_FILE.write_text(
-                json.dumps(snapshot, ensure_ascii=False), encoding="utf-8"
-            )
+            cache_file.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
         except OSError:
             pass
-        return _entries_from_raw(snapshot)
+        return converter(snapshot)
     return {}
+
+
+def _load_cached_akshare_entries() -> dict[str, StockEntry]:
+    return _load_cached_entries(
+        _CACHE_FILE,
+        _fetch_akshare_directory,
+        _entries_from_raw,
+    )
+
+
+def _load_cached_hk_akshare_entries() -> dict[str, StockEntry]:
+    return _load_cached_entries(
+        _HK_CACHE_FILE,
+        _fetch_akshare_hk_directory,
+        _entries_from_hk_raw,
+    )
 
 
 def _entries_from_raw(raw: Any) -> dict[str, StockEntry]:
@@ -185,13 +210,31 @@ def _entries_from_raw(raw: Any) -> dict[str, StockEntry]:
     return entries
 
 
-def _fetch_akshare_directory() -> list[dict[str, str]]:
-    """Fetch the full code/name table via akshare when it is installed."""
-    try:
-        import importlib
+def _entries_from_hk_raw(raw: Any) -> dict[str, StockEntry]:
+    entries: dict[str, StockEntry] = {}
+    if not isinstance(raw, list):
+        return entries
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        bare_code = str(item.get("bare_code") or "").strip()
+        name = str(item.get("name") or "").strip()
+        symbol = parse_hong_kong_symbol(f"{bare_code}.HK")
+        if symbol is None or not name:
+            continue
+        akshare_code = symbol.akshare_code
+        entries[f"HK:{akshare_code}"] = StockEntry(
+            code=symbol.canonical,
+            name=name,
+            bare_code=akshare_code,
+        )
+    return entries
 
-        akshare = importlib.import_module("akshare")
-    except Exception:  # noqa: BLE001 - akshare is an optional extra
+
+def _fetch_akshare_directory() -> list[dict[str, str]]:
+    """Fetch the full A-share code/name table when AKShare is installed."""
+    akshare = _import_akshare()
+    if akshare is None:
         return []
 
     try:
@@ -211,8 +254,32 @@ def _fetch_akshare_directory() -> list[dict[str, str]]:
     return snapshot
 
 
+def _fetch_akshare_hk_directory() -> list[dict[str, str]]:
+    """Fetch and normalize the Hong Kong code/name table from AKShare."""
+    akshare = _import_akshare()
+    if akshare is None:
+        return []
+
+    try:
+        frame = akshare.stock_hk_spot_em()
+    except Exception:  # noqa: BLE001 - network / upstream failures are non-fatal
+        return []
+
+    snapshot: list[dict[str, str]] = []
+    try:
+        for _, row in frame.iterrows():
+            raw_code = row.get("\u4ee3\u7801", row.get("code", ""))
+            name = str(row.get("\u540d\u79f0", row.get("name", ""))).strip()
+            symbol = parse_hong_kong_symbol(f"{str(raw_code).strip()}.HK")
+            if symbol is not None and name:
+                snapshot.append({"bare_code": symbol.akshare_code, "name": name})
+    except Exception:  # noqa: BLE001 - defensive against schema drift
+        return []
+    return snapshot
+
+
 class StockDirectory:
-    """Searchable, lazily-populated A-share directory."""
+    """Searchable, lazily-populated China-stock directory."""
 
     def __init__(self) -> None:
         self._entries: dict[str, StockEntry] | None = None
@@ -220,8 +287,9 @@ class StockDirectory:
     def _entries_map(self) -> dict[str, StockEntry]:
         if self._entries is None:
             merged = _build_seed_entries()
-            # akshare snapshot (when present) overlays/extends the seed set.
+            # AKShare snapshots overlay/extend the offline Mainland seed.
             merged.update(_load_cached_akshare_entries())
+            merged.update(_load_cached_hk_akshare_entries())
             self._entries = merged
         return self._entries
 
@@ -256,8 +324,8 @@ class StockDirectory:
         seen: set[str] = set()
         for bucket in (code_prefix, name_prefix, code_contains, name_contains):
             for entry in sorted(bucket, key=lambda item: item.bare_code):
-                if entry.bare_code not in seen:
-                    seen.add(entry.bare_code)
+                if entry.code not in seen:
+                    seen.add(entry.code)
                     ordered.append(entry)
         return [entry.as_dict() for entry in ordered[:limit]]
 

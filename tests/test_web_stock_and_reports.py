@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from tradingagents.web import api, stock_directory
@@ -15,6 +16,7 @@ def _client_with_store(tmp_path: Path, monkeypatch) -> TestClient:
 def test_stock_search_matches_code_and_name(monkeypatch):
     # Keep the directory hermetic: rely on the bundled seed only, no akshare.
     monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
     monkeypatch.setattr(stock_directory, "_DIRECTORY", None)
     client = TestClient(api.create_app())
 
@@ -31,12 +33,55 @@ def test_stock_search_matches_code_and_name(monkeypatch):
 
 def test_stock_search_respects_limit(monkeypatch):
     monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
     monkeypatch.setattr(stock_directory, "_DIRECTORY", None)
     client = TestClient(api.create_app())
 
     response = client.get("/api/stocks/search", params={"q": "6", "limit": 3})
     assert response.status_code == 200
     assert len(response.json()["items"]) <= 3
+
+
+def test_stock_search_matches_hong_kong_code_and_name(monkeypatch):
+    monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory,
+        "_load_cached_hk_akshare_entries",
+        lambda: {
+            "HK:00700": stock_directory.StockEntry(
+                code="0700.HK",
+                name="\u817e\u8baf\u63a7\u80a1",
+                bare_code="00700",
+            )
+        },
+    )
+    monkeypatch.setattr(stock_directory, "_DIRECTORY", None)
+    client = TestClient(api.create_app())
+
+    by_code = client.get("/api/stocks/search", params={"q": "0700"}).json()
+    assert by_code["items"][0]["code"] == "0700.HK"
+
+    by_name = client.get("/api/stocks/search", params={"q": "\u817e\u8baf"}).json()
+    assert by_name["items"][0]["name"] == "\u817e\u8baf\u63a7\u80a1"
+
+
+def test_akshare_hong_kong_snapshot_normalizes_code_and_name(monkeypatch):
+    frame = pd.DataFrame([{"\u4ee3\u7801": "00700", "\u540d\u79f0": "\u817e\u8baf\u63a7\u80a1"}])
+    fake_akshare = type(
+        "FakeAkshare",
+        (),
+        {"stock_hk_spot_em": staticmethod(lambda: frame)},
+    )()
+    monkeypatch.setattr(stock_directory, "_import_akshare", lambda: fake_akshare)
+
+    snapshot = stock_directory._fetch_akshare_hk_directory()
+
+    assert snapshot == [
+        {
+            "bare_code": "00700",
+            "name": "\u817e\u8baf\u63a7\u80a1",
+        }
+    ]
 
 
 def test_report_history_save_list_get_delete(tmp_path: Path, monkeypatch):

@@ -80,9 +80,7 @@ class FailingGraph(FakeGraph):
 
 class WebRunnerTests(unittest.TestCase):
     def test_a_share_request_uses_china_mainland_data_vendors(self):
-        config = config_for_request(
-            AnalysisRequest(ticker="600519.SH", trade_date="2026-07-11")
-        )
+        config = config_for_request(AnalysisRequest(ticker="600519.SH", trade_date="2026-07-11"))
 
         self.assertEqual(config["market_profile"], "china_mainland")
         self.assertEqual(
@@ -99,12 +97,28 @@ class WebRunnerTests(unittest.TestCase):
         )
 
     def test_non_a_share_request_keeps_default_market_profile(self):
-        config = config_for_request(
-            AnalysisRequest(ticker="AAPL", trade_date="2026-07-11")
-        )
+        config = config_for_request(AnalysisRequest(ticker="AAPL", trade_date="2026-07-11"))
 
         self.assertEqual(config["market_profile"], "default")
         self.assertEqual(config["data_vendors"]["core_stock_apis"], "yfinance")
+
+    def test_hong_kong_request_prefers_akshare_with_yfinance_fallback(self):
+        config = config_for_request(AnalysisRequest(ticker="0700.HK", trade_date="2026-07-11"))
+
+        self.assertEqual(config["market_profile"], "hong_kong")
+        self.assertEqual(
+            config["data_vendors"]["core_stock_apis"],
+            "akshare,yfinance",
+        )
+        self.assertEqual(
+            config["data_vendors"]["technical_indicators"],
+            "akshare,yfinance",
+        )
+        self.assertEqual(
+            config["data_vendors"]["fundamental_data"],
+            "akshare,yfinance",
+        )
+        self.assertEqual(config["data_vendors"]["news_data"], "akshare,yfinance")
 
     def test_stream_analysis_events_emits_progress_reports_and_completion(self):
         graph = FakeGraph()
@@ -119,14 +133,20 @@ class WebRunnerTests(unittest.TestCase):
 
         self.assertEqual(events[0].event, "run_started")
         self.assertEqual(events[0].data["ticker"], "600519.SH")
-        self.assertIn(("tool_called", "get_stock_data"), [(e.event, e.data.get("tool")) for e in events])
+        self.assertIn(
+            ("tool_called", "get_stock_data"), [(e.event, e.data.get("tool")) for e in events]
+        )
         self.assertIn(
             ("report_section_updated", "market_report"),
             [(e.event, e.data.get("section")) for e in events],
         )
         self.assertEqual(events[-1].event, "run_completed")
-        self.assertEqual(events[-1].data["final_state"]["final_trade_decision"], "Buy with risk controls")
-        self.assertEqual(graph.propagator.initial_state["instrument_context"], "Context for 600519.SH/stock")
+        self.assertEqual(
+            events[-1].data["final_state"]["final_trade_decision"], "Buy with risk controls"
+        )
+        self.assertEqual(
+            graph.propagator.initial_state["instrument_context"], "Context for 600519.SH/stock"
+        )
 
     def test_stream_analysis_events_emits_run_failed_on_exception(self):
         request = AnalysisRequest(ticker="600519.SH", trade_date="2026-07-03")

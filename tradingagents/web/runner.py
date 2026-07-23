@@ -33,16 +33,26 @@ def config_for_request(
     request: AnalysisRequest,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Resolve web-run configuration, preferring China vendors for A shares."""
+    """Resolve web-run configuration with market-specific vendor chains."""
     from tradingagents.dataflows.china_symbol_utils import parse_china_symbol
+    from tradingagents.dataflows.hong_kong_symbol_utils import parse_hong_kong_symbol
     from tradingagents.default_config import DEFAULT_CONFIG, MARKET_PROFILES
 
     resolved = deepcopy(DEFAULT_CONFIG if config is None else config)
-    is_a_share = request.asset_type == "stock" and parse_china_symbol(request.ticker)
-    if not is_a_share or resolved.get("market_profile") == "china_mainland":
+    profile_name = None
+    if request.asset_type == "stock":
+        if parse_china_symbol(request.ticker) is not None:
+            profile_name = "china_mainland"
+        elif parse_hong_kong_symbol(request.ticker) is not None:
+            profile_name = "hong_kong"
+
+    configured_profile = resolved.get("market_profile", "default")
+    if profile_name is None or configured_profile == profile_name:
+        return resolved
+    if configured_profile not in (None, "default"):
         return resolved
 
-    for key, value in MARKET_PROFILES["china_mainland"].items():
+    for key, value in MARKET_PROFILES[profile_name].items():
         if isinstance(value, dict) and isinstance(resolved.get(key), dict):
             resolved[key] = {**resolved[key], **deepcopy(value)}
         else:
@@ -172,9 +182,7 @@ def create_graph_for_request(
     config = config_for_request(request, config)
 
     runtime_model = (
-        get_application_store().get_default_runtime_model()
-        if use_admin_runtime_config
-        else None
+        get_application_store().get_default_runtime_model() if use_admin_runtime_config else None
     )
     if runtime_model is not None:
         config = dict(config or {})

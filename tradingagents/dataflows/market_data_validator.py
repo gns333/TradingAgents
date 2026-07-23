@@ -10,9 +10,9 @@ claim. Deterministic, no LLM involved.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-import logging
 
 import pandas as pd
 from stockstats import wrap
@@ -21,15 +21,24 @@ from tradingagents.dataflows.akshare_stock import get_stock_frame as get_akshare
 from tradingagents.dataflows.baostock_stock import get_stock_frame as get_baostock_stock_frame
 from tradingagents.dataflows.china_symbol_utils import parse_china_symbol
 from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.hong_kong_symbol_utils import parse_hong_kong_symbol
 from tradingagents.dataflows.stockstats_utils import load_ohlcv
 
 logger = logging.getLogger(__name__)
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
 DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
-    "close_10_ema", "close_50_sma", "close_200_sma",
-    "rsi", "boll", "boll_ub", "boll_lb",
-    "macd", "macds", "macdh", "atr",
+    "close_10_ema",
+    "close_50_sma",
+    "close_200_sma",
+    "rsi",
+    "boll",
+    "boll_ub",
+    "boll_lb",
+    "macd",
+    "macds",
+    "macdh",
+    "atr",
 )
 
 
@@ -55,20 +64,21 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
 
 def _load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
     """Load OHLCV from the configured market-specific source."""
-    if parse_china_symbol(symbol) is not None:
+    is_a_share = parse_china_symbol(symbol) is not None
+    is_hong_kong = parse_hong_kong_symbol(symbol) is not None
+    if is_a_share or is_hong_kong:
         end = datetime.strptime(curr_date, "%Y-%m-%d")
         start = (end - timedelta(days=450)).strftime("%Y-%m-%d")
         configured = (
-            get_config()
-            .get("data_vendors", {})
-            .get("core_stock_apis", "akshare,baostock,yfinance")
+            get_config().get("data_vendors", {}).get("core_stock_apis", "akshare,baostock,yfinance")
         )
         vendors = [vendor.strip() for vendor in configured.split(",") if vendor.strip()]
         loaders = {
             "akshare": lambda: get_akshare_stock_frame(symbol, start, curr_date),
-            "baostock": lambda: get_baostock_stock_frame(symbol, start, curr_date),
             "yfinance": lambda: load_ohlcv(symbol, curr_date),
         }
+        if is_a_share:
+            loaders["baostock"] = lambda: get_baostock_stock_frame(symbol, start, curr_date)
         if not vendors or vendors == ["default"]:
             vendors = list(loaders)
 
@@ -98,7 +108,8 @@ def _load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
             return pd.DataFrame()
         if first_error is not None:
             raise first_error
-        raise ValueError(f"No configured OHLCV vendor supports A-share symbol {symbol}.")
+        market = "A-share" if is_a_share else "Hong Kong"
+        raise ValueError(f"No configured OHLCV vendor supports {market} symbol {symbol}.")
     return load_ohlcv(symbol, curr_date)
 
 
@@ -158,13 +169,23 @@ def build_verified_market_snapshot(
     for field in ("Open", "High", "Low", "Close", "Volume"):
         lines.append(f"| {field} | {_fmt(latest.get(field))} |")
 
-    lines += ["", "### Verified technical indicators (latest row)", "",
-              "| Indicator | Value |", "|---|---:|"]
+    lines += [
+        "",
+        "### Verified technical indicators (latest row)",
+        "",
+        "| Indicator | Value |",
+        "|---|---:|",
+    ]
     for name, value in indicator_values.items():
         lines.append(f"| {name} | {value} |")
 
-    lines += ["", f"### Recent verified closes (last {len(recent)} rows)", "",
-              "| Date | Close |", "|---|---:|"]
+    lines += [
+        "",
+        f"### Recent verified closes (last {len(recent)} rows)",
+        "",
+        "| Date | Close |",
+        "|---|---:|",
+    ]
     for _, row in recent.iterrows():
         lines.append(f"| {_fmt(row['Date'])} | {_fmt(row.get('Close'))} |")
 

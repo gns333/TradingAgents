@@ -10,22 +10,22 @@ _MARKET_PROFILE_ENV = "TRADINGAGENTS_MARKET_PROFILE"
 # of the existing default, so users can keep writing plain strings in
 # their .env file.
 _ENV_OVERRIDES = {
-    "TRADINGAGENTS_LLM_PROVIDER":         "llm_provider",
-    "TRADINGAGENTS_DEEP_THINK_LLM":       "deep_think_llm",
-    "TRADINGAGENTS_QUICK_THINK_LLM":      "quick_think_llm",
-    "TRADINGAGENTS_LLM_BACKEND_URL":      "backend_url",
-    "TRADINGAGENTS_OUTPUT_LANGUAGE":      "output_language",
-    "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
-    "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
-    "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
-    "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
-    "TRADINGAGENTS_TEMPERATURE":          "temperature",
+    "TRADINGAGENTS_LLM_PROVIDER": "llm_provider",
+    "TRADINGAGENTS_DEEP_THINK_LLM": "deep_think_llm",
+    "TRADINGAGENTS_QUICK_THINK_LLM": "quick_think_llm",
+    "TRADINGAGENTS_LLM_BACKEND_URL": "backend_url",
+    "TRADINGAGENTS_OUTPUT_LANGUAGE": "output_language",
+    "TRADINGAGENTS_MAX_DEBATE_ROUNDS": "max_debate_rounds",
+    "TRADINGAGENTS_MAX_RISK_ROUNDS": "max_risk_discuss_rounds",
+    "TRADINGAGENTS_CHECKPOINT_ENABLED": "checkpoint_enabled",
+    "TRADINGAGENTS_BENCHMARK_TICKER": "benchmark_ticker",
+    "TRADINGAGENTS_TEMPERATURE": "temperature",
     # Provider-specific reasoning/thinking knobs (None = each provider's own
     # default). Settable here for non-interactive runs; the CLI also offers an
     # interactive choice, which is skipped when the matching var is set.
-    "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
+    "TRADINGAGENTS_GOOGLE_THINKING_LEVEL": "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
-    "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
+    "TRADINGAGENTS_ANTHROPIC_EFFORT": "anthropic_effort",
 }
 
 MARKET_PROFILES = {
@@ -56,6 +56,20 @@ MARKET_PROFILES = {
             ".SZ": "399001.SZ",
             ".BJ": "899050.BJ",
             "": "000300.SS",
+        },
+    },
+    "hong_kong": {
+        "market_profile": "hong_kong",
+        "output_language": "Chinese",
+        "data_vendors": {
+            "core_stock_apis": "akshare,yfinance",
+            "technical_indicators": "akshare,yfinance",
+            "fundamental_data": "akshare,yfinance",
+            "news_data": "akshare,yfinance",
+        },
+        "benchmark_map": {
+            ".HK": "^HSI",
+            "": "^HSI",
         },
     },
 }
@@ -126,9 +140,16 @@ def _apply_market_profile(config: dict) -> dict:
 
 _BASE_DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
-    "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
-    "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
-    "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
+    "results_dir": os.getenv(
+        "TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")
+    ),
+    "data_cache_dir": os.getenv(
+        "TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")
+    ),
+    "memory_log_path": os.getenv(
+        "TRADINGAGENTS_MEMORY_LOG_PATH",
+        os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md"),
+    ),
     # Optional cap on the number of resolved memory log entries. When set,
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.
@@ -145,9 +166,9 @@ _BASE_DEFAULT_CONFIG = {
     # being forwarded to Gemini, producing malformed request URLs).
     "backend_url": None,
     # Provider-specific thinking configuration
-    "google_thinking_level": None,      # "high", "minimal", etc.
-    "openai_reasoning_effort": None,    # "medium", "high", "low"
-    "anthropic_effort": None,           # "high", "medium", "low"
+    "google_thinking_level": None,  # "high", "minimal", etc.
+    "openai_reasoning_effort": None,  # "medium", "high", "low"
+    "anthropic_effort": None,  # "high", "medium", "low"
     # Sampling temperature, forwarded to every provider when set. None leaves
     # each provider at its own default. Lower values reduce run-to-run
     # variation on models that honor it; reasoning models largely ignore it
@@ -166,9 +187,9 @@ _BASE_DEFAULT_CONFIG = {
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;
     # decrease to reduce token usage in agent prompts.
-    "news_article_limit": 20,             # max articles per ticker (ticker-news)
-    "global_news_article_limit": 10,      # max articles for global/macro news
-    "global_news_lookback_days": 7,       # macro news lookback window
+    "news_article_limit": 20,  # max articles per ticker (ticker-news)
+    "global_news_article_limit": 10,  # max articles for global/macro news
+    "global_news_lookback_days": 7,  # macro news lookback window
     # Search queries used by get_global_news for macro headlines. Extend or
     # replace to broaden geographic / sector coverage.
     "global_news_queries": [
@@ -184,11 +205,11 @@ _BASE_DEFAULT_CONFIG = {
     # routed to vendors you didn't choose. For ordered fallback, list several,
     # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
+        "core_stock_apis": "yfinance",  # Options: alpha_vantage, yfinance
         "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
-        "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
+        "fundamental_data": "yfinance",  # Options: alpha_vantage, yfinance
+        "news_data": "yfinance",  # Options: alpha_vantage, yfinance
+        "macro_data": "fred",  # Options: fred (needs FRED_API_KEY)
         "prediction_markets": "polymarket",  # Options: polymarket (keyless)
     },
     # Tool-level configuration (takes precedence over category-level)
@@ -203,16 +224,16 @@ _BASE_DEFAULT_CONFIG = {
     # while non-US tickers get their regional index automatically.
     "benchmark_ticker": None,
     "benchmark_map": {
-        ".NS":  "^NSEI",       # NSE India (Nifty 50)
-        ".BO":  "^BSESN",      # BSE India (Sensex)
-        ".T":   "^N225",       # Tokyo (Nikkei 225)
-        ".HK":  "^HSI",        # Hong Kong (Hang Seng)
-        ".L":   "^FTSE",       # London (FTSE 100)
-        ".TO":  "^GSPTSE",     # Toronto (TSX Composite)
-        ".AX":  "^AXJO",       # Australia (ASX 200)
-        ".SS":  "000001.SS",   # Shanghai (SSE Composite)
-        ".SZ":  "399001.SZ",   # Shenzhen (SZSE Component)
-        "":     "SPY",         # default for US-listed tickers (no suffix)
+        ".NS": "^NSEI",  # NSE India (Nifty 50)
+        ".BO": "^BSESN",  # BSE India (Sensex)
+        ".T": "^N225",  # Tokyo (Nikkei 225)
+        ".HK": "^HSI",  # Hong Kong (Hang Seng)
+        ".L": "^FTSE",  # London (FTSE 100)
+        ".TO": "^GSPTSE",  # Toronto (TSX Composite)
+        ".AX": "^AXJO",  # Australia (ASX 200)
+        ".SS": "000001.SS",  # Shanghai (SSE Composite)
+        ".SZ": "399001.SZ",  # Shenzhen (SZSE Component)
+        "": "SPY",  # default for US-listed tickers (no suffix)
     },
 }
 

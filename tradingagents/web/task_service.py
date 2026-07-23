@@ -19,7 +19,7 @@ MAX_EXECUTOR_WORKERS = 8
 def _summarize_decision(text: str) -> str:
     # The Portfolio Manager already returns a structured five-tier rating. Keep
     # that canonical value instead of making the UI infer a decision from prose.
-    return parse_rating(str(text or ""), default="")
+    return parse_rating(str(text or ""), default="") or "Unrated"
 
 
 class AnalysisTaskService:

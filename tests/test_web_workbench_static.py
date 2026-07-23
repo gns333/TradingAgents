@@ -153,6 +153,92 @@ def test_workbench_js_contains_report_center_contract():
     assert order_body.index("'risk_debate_report'") < order_body.index("'final_trade_decision'")
 
 
+def test_team_progress_includes_debate_stages_in_pipeline_order():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert "investment_debate: {" in js
+    assert "risk_debate: {" in js
+    pipeline_start = js.index("const PIPELINE_ORDER")
+    pipeline_body = js[pipeline_start : pipeline_start + 500]
+    assert pipeline_body.index("'investment_debate'") < pipeline_body.index(
+        "'research_manager'"
+    )
+    assert pipeline_body.index("'trader'") < pipeline_body.index("'risk_debate'")
+    assert pipeline_body.index("'risk_debate'") < pipeline_body.index(
+        "'portfolio_manager'"
+    )
+    assert "investment_debate_report: 'investment_debate'" in js
+    assert "risk_debate_report: 'risk_debate'" in js
+    assert "'investment_debate', 'research_manager', 'trader', 'risk_debate'" in js
+    assert "grid-template-columns: repeat(9, minmax(104px, 1fr));" in css
+    assert "min-width: 960px;" in css
+
+
+def test_debate_reports_render_as_speaker_timeline_cards():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert "const DEBATE_REPORT_CONFIG" in js
+    assert "function parseDebateTurns(section, markdown)" in js
+    assert "function renderDebateTimeline(section, markdown)" in js
+    assert "debate-turn" in js
+    assert "debate-round" in js
+    assert "isDebateReport(section)" in js
+    assert "renderDebateTimeline(section, body)" in js
+    assert ".debate-timeline" in css
+    assert '.debate-turn[data-speaker="bull"]' in css
+    assert '.debate-turn[data-speaker="bear"]' in css
+    assert '.debate-turn[data-speaker="neutral"]' in css
+
+
+def test_web_package_includes_nested_vendor_assets():
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert '"tradingagents.web" = ["static/*", "static/vendor/*"]' in pyproject
+
+def test_reports_use_local_markdown_it_and_dompurify():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    markdown_it = STATIC_DIR / "vendor" / "markdown-it.min.js"
+    dompurify = STATIC_DIR / "vendor" / "purify.min.js"
+
+    markdown_script = '<script src="/assets/vendor/markdown-it.min.js" defer></script>'
+    purify_script = '<script src="/assets/vendor/purify.min.js" defer></script>'
+    workbench_script = '<script src="/assets/workbench.js" defer></script>'
+    assert markdown_script in html
+    assert purify_script in html
+    assert html.index(markdown_script) < html.index(purify_script)
+    assert html.index(purify_script) < html.index(workbench_script)
+    assert markdown_it.exists() and markdown_it.stat().st_size > 10_000
+    assert dompurify.exists() and dompurify.stat().st_size > 10_000
+    assert "window.markdownit" in js
+    assert "window.DOMPurify" in js
+    assert "DOMPurify.sanitize(markdownRenderer.render" in js
+    assert "function renderInline(value)" not in js
+
+
+def test_report_markdown_theme_has_readability_and_mobile_table_rules():
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert ".markdown h2::before" in css
+    assert ".markdown table" in css
+    assert "display: block;" in css
+    assert "overflow-x: auto;" in css
+    assert ".markdown tbody tr:nth-child(even)" in css
+    assert ".markdown blockquote" in css
+    assert ".debate-turn-body.markdown" in css
+
+
+def test_report_center_exposes_unrated_badge_and_filter():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert "unrated: { kind: 'unrated', label: '未评级' }" in js
+    assert 'data-filter="unrated">未评级</button>' in js
+    assert ".decision-badge.unrated" in css
+
+
 def test_complete_analysis_enables_sentiment_by_default():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 

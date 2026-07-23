@@ -27,8 +27,9 @@ class WebStaticTests(unittest.TestCase):
         self.assertIn("function renderMarkdown(markdown)", self.js)
         self.assertIn("panel.className = 'report-article markdown'", self.js)
         self.assertIn("const body = sectionsMap[section] || ''", self.js)
-        self.assertIn("+ renderMarkdown(body)", self.js)
-        self.assertIn("output.push('<table>')", self.js)
+        self.assertIn("? renderDebateTimeline(section, body)", self.js)
+        self.assertIn(": renderMarkdown(body)", self.js)
+        self.assertIn("DOMPurify.sanitize(markdownRenderer.render", self.js)
 
     def test_process_output_collapses_and_agent_status_is_visible(self):
         self.assertIn('id="global-run-state"', self.html)

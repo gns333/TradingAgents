@@ -28,7 +28,7 @@ def test_decision_summary_uses_portfolio_manager_rating_field():
     )
 
     assert _summarize_decision(report) == "Underweight"
-    assert _summarize_decision("没有结构化评级的普通正文") == ""
+    assert _summarize_decision("没有结构化评级的普通正文") == "Unrated"
 
 
 def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):

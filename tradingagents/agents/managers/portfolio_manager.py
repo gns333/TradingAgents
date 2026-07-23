@@ -5,10 +5,14 @@ Uses LangChain's ``with_structured_output`` so the LLM produces a typed
 back to markdown for storage in ``final_trade_decision`` so memory log,
 CLI display, and saved reports continue to consume the same shape they do
 today.  When a provider does not expose structured output, the agent falls
-back gracefully to free-text generation.
+back to free text, then repairs a missing rating once before marking the
+preserved report as unrated.
 """
 
 from __future__ import annotations
+
+import logging
+import re
 
 from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
@@ -20,6 +24,46 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+
+logger = logging.getLogger(__name__)
+
+_REQUIRED_RATING_RE = re.compile(
+    r"(?im)^\s*(?:\*\*)?rating(?:\*\*)?\s*[:\-]\s*"
+    r"(?:\*\*)?(buy|overweight|hold|underweight|sell)(?:\*\*)?(?:\s|$)"
+)
+
+
+def _parse_required_rating(text: str) -> str:
+    match = _REQUIRED_RATING_RE.search(str(text or ""))
+    return match.group(1).capitalize() if match else ""
+
+
+def _ensure_portfolio_rating(llm, prompt: str, decision: str) -> str:
+    """Repair one missing rating while preserving the original report body."""
+    rating = _parse_required_rating(decision)
+    if rating:
+        return decision
+
+    repair_prompt = f"""The Portfolio Manager report below omitted its required rating.
+Review the report and its original context, then return exactly one line in this format:
+Rating: <Buy|Overweight|Hold|Underweight|Sell>
+
+Original context:
+{prompt}
+
+Portfolio Manager report:
+{decision}
+"""
+    try:
+        response = llm.invoke(repair_prompt)
+        repair_text = str(getattr(response, "content", response) or "")
+        rating = _parse_required_rating(repair_text)
+    except Exception as exc:  # noqa: BLE001 - preserve the report on retry failure
+        logger.warning("Portfolio Manager: rating repair failed (%s)", exc)
+        rating = ""
+
+    resolved = rating or "Unrated"
+    return f"**Rating**: {resolved}\n\n{decision}".strip()
 
 
 def create_portfolio_manager(llm):
@@ -70,6 +114,11 @@ Be decisive and ground every conclusion in specific evidence from the analysts.{
             prompt,
             render_pm_decision,
             "Portfolio Manager",
+        )
+        final_trade_decision = _ensure_portfolio_rating(
+            llm,
+            prompt,
+            final_trade_decision,
         )
 
         new_risk_debate_state = {

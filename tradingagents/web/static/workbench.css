@@ -629,10 +629,12 @@ textarea { min-height: 68px; resize: vertical; }
 .decision-badge.buy { color: var(--up); background: var(--up-soft); }
 .decision-badge.sell { color: var(--down); background: var(--down-soft); }
 .decision-badge.hold { color: var(--neutral); background: var(--neutral-soft); }
+.decision-badge.unrated { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); }
 .decision-badge::before { font-size: 11px; }
 .decision-badge.buy::before { content: "▲"; }
 .decision-badge.sell::before { content: "▼"; }
 .decision-badge.hold::before { content: "＝"; }
+.decision-badge.unrated::before { content: "?"; }
 
 /* ---------------------------------------------------- 过程时间线 */
 .timeline {
@@ -855,55 +857,190 @@ textarea { min-height: 68px; resize: vertical; }
 .report-summary-head .rh-meta { color: var(--muted); font-size: 12px; }
 
 /* ---------------------------------------------------- Markdown */
-.markdown { line-height: 1.7; color: var(--text); overflow-wrap: anywhere; }
-
-.markdown h1, .markdown h2, .markdown h3, .markdown h4 {
-  margin: 20px 0 10px;
-  line-height: 1.3;
-  font-weight: 650;
+.markdown {
+  color: var(--text);
+  line-height: 1.78;
+  overflow-wrap: anywhere;
 }
-.markdown h1 { font-size: 21px; }
-.markdown h2 { font-size: 18px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.markdown h3 { font-size: 16px; }
+
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 {
+  position: relative;
+  margin: 24px 0 11px;
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.35;
+  scroll-margin-top: 120px;
+}
+.markdown h1 { font-size: clamp(21px, 2.4vw, 27px); letter-spacing: -.02em; }
+.markdown h2 {
+  padding: 0 0 8px 13px;
+  border-bottom: 1px solid var(--line);
+  font-size: clamp(18px, 2vw, 21px);
+}
+.markdown h2::before {
+  content: "";
+  position: absolute;
+  top: .18em;
+  bottom: calc(.18em + 8px);
+  left: 0;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.markdown h3 { font-size: 16px; color: color-mix(in srgb, var(--text) 92%, var(--accent)); }
 .markdown h4 { font-size: 14px; color: var(--muted); }
-.markdown p { margin: 9px 0; }
-.markdown ul, .markdown ol { margin: 9px 0 9px 20px; padding: 0; }
-.markdown li { margin: 3px 0; }
-.markdown strong { color: var(--text); font-weight: 650; }
-.markdown a { color: var(--accent); }
+.markdown p { margin: 10px 0; }
+.markdown ul, .markdown ol { margin: 10px 0 10px 22px; padding: 0; }
+.markdown li { margin: 5px 0; padding-left: 2px; }
+.markdown li::marker { color: var(--accent); font-weight: 700; }
+.markdown strong { color: var(--text); font-weight: 700; }
+.markdown a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.markdown a:hover { color: var(--accent-strong); }
 
 .markdown table {
+  display: block;
   width: 100%;
-  border-collapse: collapse;
-  margin: 14px 0;
+  max-width: 100%;
+  margin: 16px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 13px;
+  -webkit-overflow-scrolling: touch;
 }
 .markdown th, .markdown td {
-  border: 1px solid var(--line);
-  padding: 8px 11px;
+  min-width: 110px;
+  padding: 9px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
 }
-.markdown th { background: var(--surface-2); font-weight: 600; }
-/* 数据表数字列右对齐等宽 */
+.markdown th:last-child, .markdown td:last-child { border-right: 0; }
+.markdown tbody tr:last-child td { border-bottom: 0; }
+.markdown th { background: var(--surface-2); font-weight: 700; white-space: nowrap; }
 .markdown td { font-variant-numeric: tabular-nums; }
+.markdown tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 38%, transparent); }
+.markdown tbody tr:hover { background: color-mix(in srgb, var(--accent-soft) 48%, transparent); }
 
 .markdown code {
+  border: 1px solid var(--line-soft);
   border-radius: 4px;
   padding: 1px 5px;
   background: var(--surface-2);
-  border: 1px solid var(--line-soft);
-  font: 12px/1.5 var(--mono);
+  font: 12px/1.55 var(--mono);
 }
-.markdown pre code { padding: 0; background: transparent; border: 0; }
+.markdown pre {
+  max-width: 100%;
+  margin: 14px 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  background: var(--bg);
+}
+.markdown pre code { padding: 0; border: 0; background: transparent; }
 .markdown blockquote {
-  margin: 12px 0;
-  padding: 8px 14px;
-  border-left: 3px solid var(--accent);
-  background: var(--surface-2);
+  margin: 15px 0;
+  padding: 11px 15px;
+  border: 1px solid var(--line-soft);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: color-mix(in srgb, var(--accent-soft) 48%, var(--surface-2));
   color: var(--muted);
 }
+.markdown blockquote > :first-child { margin-top: 0; }
+.markdown blockquote > :last-child { margin-bottom: 0; }
+.markdown hr { margin: 25px 0; border: 0; border-top: 1px solid var(--line); }
 
+/* Debate reports use chronological cards instead of mixing speakers in prose. */
+.report-article.debate-report { max-width: 960px; }
+.debate-timeline { display: grid; gap: 0; }
+.debate-overview {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.debate-overview strong { font-size: 15px; }
+.debate-overview span { color: var(--muted); font-size: 12px; }
+.debate-intro { margin-bottom: 16px; }
+.debate-turn {
+  --speaker-color: var(--neutral);
+  --speaker-soft: var(--neutral-soft);
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 11px;
+  min-width: 0;
+}
+.debate-turn[data-speaker="bull"],
+.debate-turn[data-speaker="aggressive"] { --speaker-color: var(--up); --speaker-soft: var(--up-soft); }
+.debate-turn[data-speaker="bear"],
+.debate-turn[data-speaker="conservative"] { --speaker-color: var(--down); --speaker-soft: var(--down-soft); }
+.debate-turn[data-speaker="neutral"] { --speaker-color: #4e9fe6; --speaker-soft: rgba(78, 159, 230, .14); }
+.debate-turn-rail { position: relative; display: flex; justify-content: center; }
+.debate-turn-rail::after {
+  content: "";
+  position: absolute;
+  top: 34px;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+.debate-turn:last-child .debate-turn-rail::after { display: none; }
+.debate-avatar {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--speaker-color) 62%, var(--line));
+  border-radius: 50%;
+  background: var(--speaker-soft);
+  color: var(--speaker-color);
+  font-size: 12px;
+  font-weight: 800;
+}
+.debate-turn-card {
+  min-width: 0;
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--speaker-color);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
+}
+.debate-turn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--speaker-soft);
+}
+.debate-speaker { color: var(--speaker-color); font-size: 13px; }
+.debate-round {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--speaker-color) 45%, var(--line));
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--speaker-color);
+  font: 700 11px/1.5 var(--mono);
+}
+.debate-turn-body.markdown { padding: 12px 14px 14px; line-height: 1.72; }
+.debate-turn-body.markdown h2,
+.debate-turn-body.markdown h3 { margin-top: 17px; }
 /* ---------------------------------------------------- 报告中心 */
 .reports-grid {
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
@@ -1393,7 +1530,7 @@ textarea { min-height: 68px; resize: vertical; }
 .flow-current::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .flow-count { color: var(--muted); font-size: 12px; }
 .agent-flow-scroll { overflow-x: auto; padding: 15px 16px 13px; }
-.agent-flow { display: grid; grid-template-columns: repeat(7, minmax(92px, 1fr)); min-width: 720px; }
+.agent-flow { display: grid; grid-template-columns: repeat(9, minmax(104px, 1fr)); min-width: 960px; }
 .flow-node {
   position: relative;
   min-width: 0;
@@ -1665,6 +1802,14 @@ textarea { min-height: 68px; resize: vertical; }
   .report-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .history-mobile-back { order: -1; }
   .report-toolbar .report-identity { flex: 1; }
+  .report-article { padding-right: 12px; padding-left: 12px; }
+  .debate-overview { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .debate-turn { grid-template-columns: 30px minmax(0, 1fr); gap: 7px; }
+  .debate-avatar { width: 28px; height: 28px; }
+  .debate-turn-rail::after { top: 30px; }
+  .debate-turn-head { align-items: flex-start; padding: 9px 10px; }
+  .debate-turn-body.markdown { padding: 10px 11px 12px; }
+  .debate-round { padding: 2px 6px; }
   .cloudbase-auth-backdrop {
     display: block;
     padding: 0;

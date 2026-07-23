@@ -5,16 +5,43 @@
     news: { label: '新闻分析师', kind: '资讯催化', report: 'news_report' },
     fundamentals: { label: '基本面分析师', kind: '财务/估值', report: 'fundamentals_report' },
     social: { label: '情绪分析师', kind: '社交/舆情', report: 'sentiment_report' },
+    investment_debate: { label: '多空辩论', kind: '看多/看空 · 2 轮', phase: true },
     research_manager: { label: '研究经理', kind: '多空观点整合', report: 'investment_plan' },
     trader: { label: '交易员', kind: '交易计划', report: 'trader_investment_plan' },
+    risk_debate: { label: '风险辩论', kind: '激进/保守/中立 · 2 轮', phase: true },
     portfolio_manager: { label: '组合经理', kind: '最终决策', report: 'final_trade_decision' }
   };
-  const SECTION_TO_ROLE = Object.fromEntries(
-    Object.entries(TEAM_ROLES).map(([key, role]) => [role.report, key])
-  );
+  const SECTION_TO_ROLE = {
+    ...Object.fromEntries(
+      Object.entries(TEAM_ROLES)
+        .filter(([, role]) => role.report)
+        .map(([key, role]) => [role.report, key])
+    ),
+    investment_debate_report: 'investment_debate',
+    risk_debate_report: 'risk_debate'
+  };
   const REPORT_SECTION_LABELS = {
     investment_debate_report: '多空辩论',
     risk_debate_report: '风险辩论'
+  };
+  const DEBATE_REPORT_CONFIG = {
+    investment_debate_report: {
+      stage: 'investment_debate',
+      totalRounds: 2,
+      speakers: {
+        看多研究员: { key: 'bull', label: '看多研究员', icon: '多' },
+        看空研究员: { key: 'bear', label: '看空研究员', icon: '空' }
+      }
+    },
+    risk_debate_report: {
+      stage: 'risk_debate',
+      totalRounds: 2,
+      speakers: {
+        激进风险分析师: { key: 'aggressive', label: '激进风险分析师', icon: '激' },
+        保守风险分析师: { key: 'conservative', label: '保守风险分析师', icon: '稳' },
+        中性风险分析师: { key: 'neutral', label: '中性风险分析师', icon: '中' }
+      }
+    }
   };
 
   // Official provider presets: selecting a provider auto-fills its base URL and
@@ -90,6 +117,7 @@
     streamDone: false,
     eventTotal: 0,
     roleStates: {},
+    stageMeta: {},
     reports: {},
     currentReportSection: '',
     activeTicker: { code: '', name: '' },
@@ -113,25 +141,28 @@
   // Pipeline order for the Agent team board (analysts first, then managers).
   const PIPELINE_ORDER = [
     'market', 'news', 'fundamentals', 'social',
-    'research_manager', 'trader', 'portfolio_manager'
+    'investment_debate', 'research_manager', 'trader', 'risk_debate',
+    'portfolio_manager'
   ];
 
   const DECISION_VALUES = {
     buy: { kind: 'buy', label: '买入' },
-    overweight: { kind: 'buy', label: '买入' },
+    overweight: { kind: 'buy', label: '增持' },
     买入: { kind: 'buy', label: '买入' },
-    增持: { kind: 'buy', label: '买入' },
+    增持: { kind: 'buy', label: '增持' },
     高配: { kind: 'buy', label: '买入' },
     sell: { kind: 'sell', label: '卖出' },
-    underweight: { kind: 'sell', label: '卖出' },
+    underweight: { kind: 'sell', label: '减持' },
     卖出: { kind: 'sell', label: '卖出' },
-    减持: { kind: 'sell', label: '卖出' },
+    减持: { kind: 'sell', label: '减持' },
     低配: { kind: 'sell', label: '卖出' },
     hold: { kind: 'hold', label: '持有' },
     neutral: { kind: 'hold', label: '持有' },
     持有: { kind: 'hold', label: '持有' },
     中性: { kind: 'hold', label: '持有' },
-    观望: { kind: 'hold', label: '持有' }
+    观望: { kind: 'hold', label: '持有' },
+    unrated: { kind: 'unrated', label: '未评级' },
+    未评级: { kind: 'unrated', label: '未评级' }
   };
 
   // New reports persist the Portfolio Manager's structured rating. During a
@@ -145,8 +176,8 @@
     const statement = ratingLine
       ? ratingLine.replace(/^(?:rating|投资评级|评级)\s*[：:-]\s*/i, '')
       : lines.length === 1 ? lines[0] : '';
-    const match = statement.match(/^(?:strong\s+)?(buy|overweight|hold|neutral|underweight|sell|买入|增持|高配|持有|中性|观望|减持|低配|卖出)(?:\b|[（(\s，。；;]|$)/i);
-    return match ? DECISION_VALUES[match[1].toLowerCase()] || null : null;
+    const match = statement.match(/^(?:strong\s+)?(buy|overweight|hold|neutral|underweight|sell|unrated|买入|增持|高配|持有|中性|观望|减持|低配|卖出|未评级)(?:\b|[（(\s，。；;]|$)/i);
+    return match ? DECISION_VALUES[match[1].toLowerCase()] : DECISION_VALUES.unrated;
   }
 
   function decisionBadgeHtml(text) {
@@ -1070,7 +1101,8 @@
 
   function resetTeamBoard(analysts) {
     state.roleStates = {};
-    [...analysts, 'research_manager', 'trader', 'portfolio_manager'].forEach(key => {
+    state.stageMeta = {};
+    [...analysts, 'investment_debate', 'research_manager', 'trader', 'risk_debate', 'portfolio_manager'].forEach(key => {
       state.roleStates[key] = 'pending';
     });
     renderTeamBoard();
@@ -1094,9 +1126,11 @@
         + '<span class="flow-status"></span>';
       node.querySelector('.flow-marker').textContent = roleState === 'done' ? '✓' : String(index + 1);
       node.querySelector('.flow-role').textContent = role.label;
-      node.querySelector('.flow-kind').textContent = role.kind.replaceAll('/', ' / ');
-      node.querySelector('.flow-status').textContent =
-        roleState === 'active' ? '进行中' : roleState === 'done' ? '已完成' : '待处理';
+      const stageMeta = state.stageMeta[key];
+      node.querySelector('.flow-kind').textContent = (stageMeta?.detail || role.kind).replaceAll('/', ' / ');
+      node.querySelector('.flow-status').textContent = roleState === 'active' && stageMeta?.round
+        ? `第 ${stageMeta.round}/${stageMeta.totalRounds} 轮 · ${stageMeta.speaker}`
+        : roleState === 'active' ? '进行中' : roleState === 'done' ? '已完成' : '待处理';
       board.appendChild(node);
     });
     const activeLabels = visibleRoles
@@ -1128,14 +1162,21 @@
   }
 
   function advancePipelineStage() {
-    const analystKeys = Object.keys(state.roleStates).filter(key => !['research_manager', 'trader', 'portfolio_manager'].includes(key));
+    const stageKeys = ['investment_debate', 'research_manager', 'trader', 'risk_debate', 'portfolio_manager'];
+    const analystKeys = Object.keys(state.roleStates).filter(key => !stageKeys.includes(key));
     if (analystKeys.length && analystKeys.every(key => state.roleStates[key] === 'done')) {
-      if (state.roleStates.research_manager === 'pending') state.roleStates.research_manager = 'active';
+      if (state.roleStates.investment_debate === 'pending') state.roleStates.investment_debate = 'active';
+    }
+    if (state.roleStates.investment_debate === 'done' && state.roleStates.research_manager === 'pending') {
+      state.roleStates.research_manager = 'active';
     }
     if (state.roleStates.research_manager === 'done' && state.roleStates.trader === 'pending') {
       state.roleStates.trader = 'active';
     }
-    if (state.roleStates.trader === 'done' && state.roleStates.portfolio_manager === 'pending') {
+    if (state.roleStates.trader === 'done' && state.roleStates.risk_debate === 'pending') {
+      state.roleStates.risk_debate = 'active';
+    }
+    if (state.roleStates.risk_debate === 'done' && state.roleStates.portfolio_manager === 'pending') {
       state.roleStates.portfolio_manager = 'active';
     }
   }
@@ -1366,8 +1407,19 @@
       addCollapsibleLog('Agent 输出', data.content, data.message_type || 'Agent', 'active', data.created_at);
     } else if (event === 'report_section_updated') {
       const roleKey = SECTION_TO_ROLE[data.section];
-      if (roleKey) markRole(roleKey, 'done');
       state.reports[data.section] = data.content || '';
+      if (isDebateReport(data.section)) {
+        markDebateProgress(data.section, state.reports[data.section]);
+        renderTeamBoard();
+      } else {
+        if (data.section === 'investment_plan' && state.roleStates.investment_debate) {
+          state.roleStates.investment_debate = 'done';
+        }
+        if (data.section === 'final_trade_decision' && state.roleStates.risk_debate) {
+          state.roleStates.risk_debate = 'done';
+        }
+        if (roleKey) markRole(roleKey, 'done');
+      }
       if (!state.currentReportSection) state.currentReportSection = data.section;
       renderReportPreview();
       addCollapsibleLog('报告更新', `${TEAM_ROLES[roleKey]?.label || data.section} 交付了 ${data.section}`, '协作轨迹', 'done', data.created_at);
@@ -1401,8 +1453,23 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Markdown rendering
+  // Markdown rendering and debate conversations
   // ---------------------------------------------------------------------------
+  const markdownRenderer = window.markdownit
+    ? window.markdownit({ html: false, linkify: true, breaks: false, typographer: false })
+    : null;
+  const DOMPurify = window.DOMPurify || null;
+
+  if (markdownRenderer) {
+    const defaultLinkOpen = markdownRenderer.renderer.rules.link_open
+      || ((tokens, index, options, env, renderer) => renderer.renderToken(tokens, index, options));
+    markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
+      tokens[index].attrSet('target', '_blank');
+      tokens[index].attrSet('rel', 'noopener noreferrer');
+      return defaultLinkOpen(tokens, index, options, env, renderer);
+    };
+  }
+
   function escapeHtml(value) {
     return String(value || '')
       .replaceAll('&', '&amp;')
@@ -1412,119 +1479,99 @@
       .replaceAll("'", '&#39;');
   }
 
-  function renderInline(value) {
-    let text = escapeHtml(value);
-    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-    return text;
-  }
-
-  function isTableSeparator(line) {
-    return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
-  }
-
-  function splitTableRow(line) {
-    return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
-  }
-
   function renderMarkdown(markdown) {
-    const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
-    const output = [];
-    let i = 0;
-    while (i < lines.length) {
-      const trimmed = lines[i].trim();
-      if (!trimmed) {
-        i += 1;
-        continue;
-      }
-      if (trimmed.startsWith('```')) {
-        const code = [];
-        i += 1;
-        while (i < lines.length && !lines[i].trim().startsWith('```')) {
-          code.push(lines[i]);
-          i += 1;
-        }
-        if (i < lines.length) i += 1;
-        output.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
-        continue;
-      }
-      const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
-      if (heading) {
-        const level = heading[1].length;
-        output.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
-        i += 1;
-        continue;
-      }
-      if (/^---+$/.test(trimmed)) {
-        output.push('<hr>');
-        i += 1;
-        continue;
-      }
-      if (/^>\s?/.test(trimmed)) {
-        const quote = [];
-        while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
-          quote.push(lines[i].trim().replace(/^>\s?/, ''));
-          i += 1;
-        }
-        output.push(`<blockquote>${renderInline(quote.join(' '))}</blockquote>`);
-        continue;
-      }
-      if (trimmed.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
-        const headers = splitTableRow(trimmed);
-        const rows = [];
-        i += 2;
-        while (i < lines.length && lines[i].trim().includes('|')) {
-          rows.push(splitTableRow(lines[i]));
-          i += 1;
-        }
-        output.push('<table>');
-        output.push(`<thead><tr>${headers.map(cell => `<th>${renderInline(cell)}</th>`).join('')}</tr></thead>`);
-        output.push('<tbody>');
-        rows.forEach(row => {
-          output.push(`<tr>${row.map(cell => `<td>${renderInline(cell)}</td>`).join('')}</tr>`);
-        });
-        output.push('</tbody></table>');
-        continue;
-      }
-      if (/^[-*]\s+/.test(trimmed)) {
-        const items = [];
-        while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
-          items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
-          i += 1;
-        }
-        output.push(`<ul>${items.map(item => `<li>${renderInline(item)}</li>`).join('')}</ul>`);
-        continue;
-      }
-      if (/^\d+\.\s+/.test(trimmed)) {
-        const items = [];
-        while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
-          items.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
-          i += 1;
-        }
-        output.push(`<ol>${items.map(item => `<li>${renderInline(item)}</li>`).join('')}</ol>`);
-        continue;
-      }
-      const paragraph = [trimmed];
-      i += 1;
-      while (
-        i < lines.length &&
-        lines[i].trim() &&
-        !/^(#{1,4})\s+/.test(lines[i].trim()) &&
-        !/^[-*]\s+/.test(lines[i].trim()) &&
-        !/^\d+\.\s+/.test(lines[i].trim()) &&
-        !lines[i].trim().startsWith('```') &&
-        !(lines[i].trim().includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1]))
-      ) {
-        paragraph.push(lines[i].trim());
-        i += 1;
-      }
-      output.push(`<p>${renderInline(paragraph.join(' '))}</p>`);
+    const source = String(markdown || '');
+    if (!markdownRenderer || !DOMPurify) {
+      return `<p>${escapeHtml(source).replaceAll('\n', '<br>')}</p>`;
     }
-    return output.join('');
+    return DOMPurify.sanitize(markdownRenderer.render(source), {
+      USE_PROFILES: { html: true },
+      ADD_ATTR: ['target'],
+      FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'option']
+    });
   }
 
+  function isDebateReport(section) {
+    return Boolean(DEBATE_REPORT_CONFIG[section]);
+  }
+
+  function parseDebateTurns(section, markdown) {
+    const config = DEBATE_REPORT_CONFIG[section];
+    if (!config) return { config: null, intro: '', turns: [] };
+
+    const counts = {};
+    const introLines = [];
+    const turns = [];
+    let current = null;
+    const flushCurrent = () => {
+      if (!current) return;
+      current.content = current.lines.join('\n').trim();
+      delete current.lines;
+      turns.push(current);
+      current = null;
+    };
+
+    String(markdown || '').replace(/\r\n/g, '\n').split('\n').forEach(line => {
+      const heading = /^#{2,4}\s+(.+?)\s*$/.exec(line.trim());
+      const speaker = heading ? config.speakers[heading[1]] : null;
+      if (speaker) {
+        flushCurrent();
+        counts[speaker.key] = (counts[speaker.key] || 0) + 1;
+        current = { ...speaker, round: counts[speaker.key], lines: [] };
+      } else if (current) {
+        current.lines.push(line);
+      } else {
+        introLines.push(line);
+      }
+    });
+    flushCurrent();
+
+    return { config, intro: introLines.join('\n').trim(), turns };
+  }
+
+  function markDebateProgress(section, markdown) {
+    const { config, turns } = parseDebateTurns(section, markdown);
+    if (!config || !state.roleStates[config.stage]) return;
+    const last = turns[turns.length - 1];
+    const expectedTurns = Object.keys(config.speakers).length * config.totalRounds;
+    state.roleStates[config.stage] = turns.length >= expectedTurns ? 'done' : 'active';
+    state.stageMeta[config.stage] = last ? {
+      round: Math.min(last.round, config.totalRounds),
+      totalRounds: config.totalRounds,
+      speaker: last.label,
+      detail: `${last.label} · ${turns.length}/${expectedTurns} 次发言`
+    } : null;
+    advancePipelineStage();
+  }
+
+  function renderDebateTimeline(section, markdown) {
+    const { config, intro, turns } = parseDebateTurns(section, markdown);
+    if (!config || !turns.length) return renderMarkdown(markdown);
+
+    const introHtml = intro
+      ? `<div class="debate-intro markdown">${renderMarkdown(intro)}</div>`
+      : '';
+    const cards = turns.map(turn => `
+      <article class="debate-turn" data-speaker="${turn.key}">
+        <div class="debate-turn-rail" aria-hidden="true">
+          <span class="debate-avatar">${escapeHtml(turn.icon)}</span>
+        </div>
+        <div class="debate-turn-card">
+          <header class="debate-turn-head">
+            <strong class="debate-speaker">${escapeHtml(turn.label)}</strong>
+            <span class="debate-round">第 ${turn.round}/${config.totalRounds} 轮</span>
+          </header>
+          <div class="debate-turn-body markdown">${renderMarkdown(turn.content)}</div>
+        </div>
+      </article>`).join('');
+    return `<section class="debate-timeline" aria-label="${escapeHtml(reportTitle(section))}">
+      <div class="debate-overview">
+        <strong>${escapeHtml(reportTitle(section))}</strong>
+        <span>${config.totalRounds} 轮 · ${turns.length} 次发言 · 按发生顺序展示</span>
+      </div>
+      ${introHtml}${cards}
+    </section>`;
+  }
   function reportTitle(section) {
     const roleKey = SECTION_TO_ROLE[section];
     if (roleKey && TEAM_ROLES[roleKey]) return TEAM_ROLES[roleKey].label;
@@ -1599,8 +1646,12 @@
       const body = sectionsMap[section] || '';
       // The final decision gets a Buy/Sell/Hold badge pinned above its report.
       const badge = section === 'final_trade_decision' ? decisionBadgeHtml(body) : '';
+      const reportHtml = isDebateReport(section)
+        ? renderDebateTimeline(section, body)
+        : renderMarkdown(body);
+      panel.classList.toggle('debate-report', isDebateReport(section));
       panel.innerHTML = (badge ? `<div class="report-summary-head">${badge}</div>` : '')
-        + renderMarkdown(body);
+        + reportHtml;
       tabs.querySelector(`[data-section="${section}"]`)?.scrollIntoView({
         behavior: 'smooth', block: 'nearest', inline: 'nearest'
       });
@@ -1694,6 +1745,7 @@
               <button type="button" class="filter-chip" data-filter="buy">买入</button>
               <button type="button" class="filter-chip" data-filter="sell">卖出</button>
               <button type="button" class="filter-chip" data-filter="hold">持有</button>
+              <button type="button" class="filter-chip" data-filter="unrated">未评级</button>
             </div>
           </div>
           <div class="history-list" id="history-list"></div>
@@ -2637,6 +2689,8 @@
     setAnalysisTicker,
     renderAnalysisWorkspace,
     renderMarkdown,
+    parseDebateTurns,
+    renderDebateTimeline,
     renderReportCenter,
     renderReportPreview,
     renderAdminWorkspace,

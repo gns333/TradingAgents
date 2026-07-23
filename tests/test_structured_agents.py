@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from tradingagents.agents.analysts import sentiment_analyst as sentiment_module
 from tradingagents.agents.analysts.sentiment_analyst import create_sentiment_analyst
+from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 from tradingagents.agents.managers.research_manager import create_research_manager
 from tradingagents.agents.schemas import (
     PortfolioDecision,
@@ -284,6 +285,66 @@ class TestResearchManagerAgent:
         rm = create_research_manager(llm)
         result = rm(_make_rm_state())
         assert result["investment_plan"] == plain_response
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Manager: preserve free text and repair a missing rating once
+# ---------------------------------------------------------------------------
+
+
+def _make_pm_state():
+    return {
+        "company_of_interest": "NVDA",
+        "investment_plan": "Research plan.",
+        "trader_investment_plan": "Trader plan.",
+        "risk_debate_state": {
+            "history": "Risk debate.",
+            "aggressive_history": "Aggressive view.",
+            "conservative_history": "Conservative view.",
+            "neutral_history": "Neutral view.",
+            "current_aggressive_response": "",
+            "current_conservative_response": "",
+            "current_neutral_response": "",
+            "count": 2,
+        },
+    }
+
+
+@pytest.mark.unit
+class TestPortfolioManagerRatingRepair:
+    def test_missing_rating_is_retried_once_and_original_report_is_preserved(self):
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.side_effect = [
+            MagicMock(content="看多方建议 Buy but the manager gave no final rating."),
+            MagicMock(content="Rating: Overweight"),
+        ]
+
+        result = create_portfolio_manager(llm)(_make_pm_state())
+        decision = result["final_trade_decision"]
+
+        assert decision.startswith("**Rating**: Overweight")
+        assert "看多方建议 Buy but the manager gave no final rating." in decision
+        assert llm.invoke.call_count == 2
+
+    def test_failed_rating_retry_keeps_report_as_unrated(self):
+        llm = MagicMock()
+        llm.with_structured_output.side_effect = NotImplementedError(
+            "provider unsupported"
+        )
+        llm.invoke.side_effect = [
+            MagicMock(content="风险分歧较大，正文仍有保留价值。"),
+            MagicMock(content="无法确定"),
+        ]
+
+        result = create_portfolio_manager(llm)(_make_pm_state())
+        decision = result["final_trade_decision"]
+
+        assert decision.startswith("**Rating**: Unrated")
+        assert "风险分歧较大，正文仍有保留价值。" in decision
+        assert llm.invoke.call_count == 2
 
 
 # ---------------------------------------------------------------------------

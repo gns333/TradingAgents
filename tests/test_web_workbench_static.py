@@ -145,6 +145,21 @@ def test_workbench_js_contains_report_center_contract():
     assert "report-tab-scroll" in js
     assert "scrollIntoView({ behavior: 'smooth', block: 'start' })" in js
     assert "final_trade_decision" in js
+    assert "investment_debate_report: '多空辩论'" in js
+    assert "risk_debate_report: '风险辩论'" in js
+    order_start = js.index("function orderedReportSections()")
+    order_body = js[order_start : order_start + 500]
+    assert order_body.index("'investment_debate_report'") < order_body.index("'investment_plan'")
+    assert order_body.index("'risk_debate_report'") < order_body.index("'final_trade_decision'")
+
+
+def test_complete_analysis_enables_sentiment_by_default():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert re.search(
+        r'<input\s+type="checkbox"\s+name="analyst"\s+value="social"\s+checked>',
+        js,
+    )
 
 
 def test_workbench_js_contains_ticker_autocomplete_contract():

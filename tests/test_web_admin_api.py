@@ -76,6 +76,26 @@ class FakeModelCatalog:
         return [ModelInfo("same-model", "Same Model")]
 
 
+def test_create_run_defaults_to_all_four_analysts(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    client = TestClient(
+        api.create_app(store=store, task_service=FakeTaskService())
+    )
+
+    response = client.post(
+        "/api/runs",
+        json={"ticker": "600519.SH", "trade_date": "2026-07-23"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["run"]["analysts"] == [
+        "market",
+        "news",
+        "fundamentals",
+        "social",
+    ]
+
+
 def test_admin_api_initializes_login_and_saves_masked_model_config(tmp_path: Path, monkeypatch):
     store = AdminStore(tmp_path / "admin.sqlite3")
     monkeypatch.setattr(api, "get_admin_store", lambda: store)

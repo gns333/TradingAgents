@@ -169,11 +169,10 @@ _BASE_DEFAULT_CONFIG = {
     "google_thinking_level": None,  # "high", "minimal", etc.
     "openai_reasoning_effort": None,  # "medium", "high", "low"
     "anthropic_effort": None,  # "high", "medium", "low"
-    # Sampling temperature, forwarded to every provider when set. None leaves
-    # each provider at its own default. Lower values reduce run-to-run
-    # variation on models that honor it; reasoning models largely ignore it
-    # and no setting makes LLM output bit-identical across runs (see README).
-    "temperature": None,
+    # Sampling temperature, forwarded to every provider when set. A low default
+    # keeps reports stable while still allowing debate agents some variation;
+    # reasoning models may ignore it and output is never bit-identical.
+    "temperature": 0.2,
     # Checkpoint/resume: when True, LangGraph saves state after each node
     # so a crashed run can resume from the last successful step.
     "checkpoint_enabled": False,
@@ -181,8 +180,8 @@ _BASE_DEFAULT_CONFIG = {
     # Internal agent debate stays in English for reasoning quality
     "output_language": "English",
     # Debate and discussion settings
-    "max_debate_rounds": 1,
-    "max_risk_discuss_rounds": 1,
+    "max_debate_rounds": 2,
+    "max_risk_discuss_rounds": 2,
     "max_recur_limit": 100,
     # News / data fetching parameters
     # Increase for longer lookback strategies or to broaden macro coverage;

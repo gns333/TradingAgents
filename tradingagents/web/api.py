@@ -487,7 +487,10 @@ def create_app(
             raise HTTPException(status_code=400, detail="ticker and trade_date are required")
         analysts = [
             str(item).strip()
-            for item in (payload.get("analysts") or ["market", "news", "fundamentals"])
+            for item in (
+                payload.get("analysts")
+                or ["market", "news", "fundamentals", "social"]
+            )
             if str(item).strip()
         ]
         stock_name = str(payload.get("stock_name") or "").strip()

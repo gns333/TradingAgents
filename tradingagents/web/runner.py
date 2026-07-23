@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -12,13 +13,33 @@ from .store_factory import get_application_store
 
 REPORT_SECTIONS: tuple[str, ...] = (
     "market_report",
-    "sentiment_report",
     "news_report",
     "fundamentals_report",
+    "sentiment_report",
+    "investment_debate_report",
     "investment_plan",
     "trader_investment_plan",
+    "risk_debate_report",
     "final_trade_decision",
 )
+
+_DEBATE_REPORTS: dict[str, tuple[str, dict[str, str]]] = {
+    "investment_debate_report": (
+        "investment_debate_state",
+        {
+            "Bull Analyst": "看多研究员",
+            "Bear Analyst": "看空研究员",
+        },
+    ),
+    "risk_debate_report": (
+        "risk_debate_state",
+        {
+            "Aggressive Analyst": "激进风险分析师",
+            "Conservative Analyst": "保守风险分析师",
+            "Neutral Analyst": "中性风险分析师",
+        },
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -76,6 +97,27 @@ def _content_to_text(content: Any) -> str:
     if isinstance(content, dict) and "text" in content:
         return str(content["text"]).strip()
     return str(content).strip()
+
+
+def _render_debate_history(history: Any, speaker_labels: dict[str, str]) -> str:
+    text = str(history or "").strip()
+    if not text:
+        return ""
+    speaker_pattern = "|".join(re.escape(speaker) for speaker in speaker_labels)
+    pattern = re.compile(rf"(?m)^({speaker_pattern}):\s*")
+    return pattern.sub(
+        lambda match: f"### {speaker_labels[match.group(1)]}\n\n",
+        text,
+    )
+
+
+def _report_content(chunk: dict[str, Any], section: str) -> str:
+    debate = _DEBATE_REPORTS.get(section)
+    if debate is None:
+        return str(chunk.get(section) or "")
+    state_key, speaker_labels = debate
+    state = chunk.get(state_key) or {}
+    return _render_debate_history(state.get("history", ""), speaker_labels)
 
 
 def _tool_call_parts(tool_call: Any) -> tuple[str, dict[str, Any]]:
@@ -144,7 +186,7 @@ def stream_analysis_events(
                 yield from _message_events(message, seen_message_ids)
 
             for section in REPORT_SECTIONS:
-                content = chunk.get(section)
+                content = _report_content(chunk, section)
                 if content and seen_reports.get(section) != content:
                     seen_reports[section] = content
                     yield AnalysisEvent(

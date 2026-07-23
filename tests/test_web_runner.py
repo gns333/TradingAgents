@@ -50,9 +50,22 @@ class FakeCompiledGraph:
                 )
             ],
             "market_report": "Market report body",
+            "investment_debate_state": {
+                "history": (
+                    "\nBull Analyst: Demand remains strong."
+                    "\nBear Analyst: Valuation leaves little margin of safety."
+                )
+            },
         }
         yield {
             "messages": [FakeMessage("Final decision ready", message_id="m2")],
+            "risk_debate_state": {
+                "history": (
+                    "\nAggressive Analyst: Add exposure on strength."
+                    "\nConservative Analyst: Keep the position small."
+                    "\nNeutral Analyst: Scale in only after confirmation."
+                )
+            },
             "final_trade_decision": "Buy with risk controls",
         }
 
@@ -140,6 +153,18 @@ class WebRunnerTests(unittest.TestCase):
             ("report_section_updated", "market_report"),
             [(e.event, e.data.get("section")) for e in events],
         )
+        reports = {
+            event.data["section"]: event.data["content"]
+            for event in events
+            if event.event == "report_section_updated"
+        }
+        self.assertIn("investment_debate_report", reports)
+        self.assertIn("### 看多研究员", reports["investment_debate_report"])
+        self.assertIn("### 看空研究员", reports["investment_debate_report"])
+        self.assertIn("risk_debate_report", reports)
+        self.assertIn("### 激进风险分析师", reports["risk_debate_report"])
+        self.assertIn("### 保守风险分析师", reports["risk_debate_report"])
+        self.assertIn("### 中性风险分析师", reports["risk_debate_report"])
         self.assertEqual(events[-1].event, "run_completed")
         self.assertEqual(
             events[-1].data["final_state"]["final_trade_decision"], "Buy with risk controls"

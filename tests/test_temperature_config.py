@@ -49,11 +49,11 @@ class TestTemperatureEnvOverlay:
         monkeypatch.delenv("TRADINGAGENTS_TEMPERATURE", raising=False)
         importlib.reload(dc)
 
-    def test_default_temperature_is_none(self, monkeypatch):
+    def test_default_temperature_is_low_for_stable_reports(self, monkeypatch):
         import tradingagents.default_config as dc
         monkeypatch.delenv("TRADINGAGENTS_TEMPERATURE", raising=False)
         importlib.reload(dc)
-        assert dc.DEFAULT_CONFIG["temperature"] is None
+        assert dc.DEFAULT_CONFIG["temperature"] == 0.2
 
 
 @pytest.mark.unit

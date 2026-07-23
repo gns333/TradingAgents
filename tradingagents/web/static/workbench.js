@@ -12,6 +12,10 @@
   const SECTION_TO_ROLE = Object.fromEntries(
     Object.entries(TEAM_ROLES).map(([key, role]) => [role.report, key])
   );
+  const REPORT_SECTION_LABELS = {
+    investment_debate_report: '多空辩论',
+    risk_debate_report: '风险辩论'
+  };
 
   // Official provider presets: selecting a provider auto-fills its base URL and
   // offers curated model dropdowns so admins never hand-type an endpoint.
@@ -882,7 +886,7 @@
               <label class="check-option"><input type="checkbox" name="analyst" value="market" checked>市场</label>
               <label class="check-option"><input type="checkbox" name="analyst" value="news" checked>新闻</label>
               <label class="check-option"><input type="checkbox" name="analyst" value="fundamentals" checked>基本面</label>
-              <label class="check-option"><input type="checkbox" name="analyst" value="social">社交情绪</label>
+              <label class="check-option"><input type="checkbox" name="analyst" value="social" checked>社交情绪</label>
             </div>
           </div>
           <button class="launch-action" type="button" id="run-analysis">开始分析</button>
@@ -1029,7 +1033,7 @@
     const selected = [...document.querySelectorAll('input[name="analyst"]:checked')].map(
       input => input.value
     );
-    return selected.length ? selected : ['market', 'news', 'fundamentals'];
+    return selected.length ? selected : ['market', 'news', 'fundamentals', 'social'];
   }
 
   function getSelectedAnalysts() {
@@ -1524,6 +1528,7 @@
   function reportTitle(section) {
     const roleKey = SECTION_TO_ROLE[section];
     if (roleKey && TEAM_ROLES[roleKey]) return TEAM_ROLES[roleKey].label;
+    if (REPORT_SECTION_LABELS[section]) return REPORT_SECTION_LABELS[section];
     return section.replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
   }
 
@@ -1533,8 +1538,10 @@
       'news_report',
       'fundamentals_report',
       'sentiment_report',
+      'investment_debate_report',
       'investment_plan',
       'trader_investment_plan',
+      'risk_debate_report',
       'final_trade_decision'
     ];
   }

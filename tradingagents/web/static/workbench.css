@@ -422,6 +422,26 @@ textarea { min-height: 68px; resize: vertical; }
 .view { display: none; }
 .view.active { display: block; animation: fade-in .22s ease; }
 
+.method-reference {
+  padding: 0 22px 14px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: .62;
+}
+
+.method-reference a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.method-reference a:hover,
+.method-reference a:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }

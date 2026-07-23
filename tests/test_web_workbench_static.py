@@ -156,6 +156,17 @@ def test_workbench_js_contains_ticker_autocomplete_contract():
     assert 'role="combobox"' in js
 
 
+def test_trade_date_input_can_shrink_on_mobile_safari():
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    date_rules = re.findall(r"#trade-date\s*\{([^}]*)\}", css)
+    assert date_rules
+    date_rule = date_rules[-1]
+    assert "min-width: 0;" in date_rule
+    assert "min-inline-size: 0;" in date_rule
+    assert "max-width: 100%;" in date_rule
+
+
 def test_workbench_js_contains_report_history_contract():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 

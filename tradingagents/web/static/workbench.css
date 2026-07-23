@@ -1298,6 +1298,12 @@ textarea { min-height: 68px; resize: vertical; }
   line-height: 1.2;
 }
 .analysis-launchbar input:not([type="checkbox"]) { min-height: 38px; border-color: var(--line-soft); }
+.analysis-launchbar #trade-date {
+  display: block;
+  min-width: 0;
+  min-inline-size: 0;
+  max-width: 100%;
+}
 .analysis-launchbar .launch-field:first-child input { font-family: var(--mono); font-weight: 600; }
 .ticker-combo input { padding-right: 104px; }
 .ticker-name-chip {

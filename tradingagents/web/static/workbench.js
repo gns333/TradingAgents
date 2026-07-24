@@ -964,7 +964,7 @@
           </div>
           <div class="launch-field">
             <label for="trade-date">分析日期</label>
-            <input id="trade-date" type="date">
+            <input id="trade-date" type="date" required>
           </div>
           <div class="launch-modules">
             <span class="launch-label">分析模块</span>
@@ -1018,7 +1018,10 @@
       </div>
     `;
     const dateInput = qs('#trade-date');
-    if (dateInput && !dateInput.value) dateInput.value = todayChinaDate();
+    if (dateInput) {
+      dateInput.max = todayChinaDate();
+      if (!dateInput.value || dateInput.value > dateInput.max) dateInput.value = dateInput.max;
+    }
     dateInput?.addEventListener('change', updateCurrentReportToolbar);
     qs('#run-analysis')?.addEventListener('click', startAnalysis);
     qs('[data-open-reports]', root)?.addEventListener('click', () => showView('reports'));
@@ -1325,11 +1328,23 @@
     if (button) button.disabled = false;
   }
 
+  function validatedTradeDate() {
+    const input = qs('#trade-date');
+    const today = todayChinaDate();
+    if (!input) return today;
+    input.max = today;
+    const value = input.value || today;
+    input.setCustomValidity(value > today ? '分析日期不能晚于今天' : '');
+    if (!input.reportValidity()) return '';
+    return value;
+  }
   async function startAnalysis() {
     if (!hasAnalysisIdentity()) {
       showAnalysisLoginPrompt('\u8bf7\u5148\u767b\u5f55\u540e\u518d\u5f00\u59cb\u5206\u6790');
       return;
     }
+    const tradeDate = validatedTradeDate();
+    if (!tradeDate) return;
     resetRunView();
     const button = qs('#run-analysis');
     if (button) button.disabled = true;
@@ -1348,7 +1363,7 @@
     const payload = {
       ticker: qs('#ticker')?.value.trim() || '',
       stock_name: state.activeTicker.name || '',
-      trade_date: qs('#trade-date')?.value || todayChinaDate(),
+      trade_date: tradeDate,
       asset_type: 'stock',
       analysts: selectedAnalystList()
     };
@@ -1838,6 +1853,7 @@
               <div class="report-identity-main">
                 <span class="report-code" id="history-detail-title">报告详情</span>
                 <span class="report-name" id="history-detail-name"></span>
+                <span class="report-date-badge report-detail-date" id="history-detail-date" hidden></span>
               </div>
               <span class="report-meta" id="history-detail-meta">从左侧选择一份历史报告</span>
             </div>
@@ -1929,10 +1945,10 @@
       open.type = 'button';
       open.className = 'history-open';
       open.innerHTML = '<div class="ho-top"><strong><span class="ho-code"></span><span class="ho-name"></span></strong></div>'
-        + '<div class="ho-meta"><span class="ho-trade-date"></span><span class="ho-created"></span></div>'
+        + '<div class="ho-meta"><span class="ho-trade-date report-date-badge"></span><span class="ho-created"></span></div>'
         + '<span class="ho-owner"></span>';
       open.querySelector('.ho-code').textContent = item.ticker || '未知代码';
-      open.querySelector('.ho-name').textContent = ` · ${item.stock_name || '名称未记录'}`;
+      open.querySelector('.ho-name').textContent = item.stock_name ? ` · ${item.stock_name}` : '';
       const badge = decisionBadgeHtml(item.decision);
       open.querySelector('.ho-top').insertAdjacentHTML('beforeend', badge || '<span class="tag">已归档</span>');
       const owner = isAdminSession()
@@ -1984,11 +2000,13 @@
     setHistoryMobileDetail(true);
     setText('#history-detail-title', report.ticker || '未知代码');
     setText('#history-detail-name', report.stock_name || '');
+    setText('#history-detail-date', `分析日 ${report.trade_date || '未知'}`);
+    const detailDate = qs('#history-detail-date');
+    if (detailDate) detailDate.hidden = false;
     const moduleCount = (report.analysts || []).length;
     const created = formatEventTime(report.created_at);
     const owner = isAdminSession() ? report.owner_email || report.owner_uid || '' : '';
     setText('#history-detail-meta', [
-      `分析日 ${report.trade_date || '未知'}`,
       created ? `${created} 归档` : '',
       `${moduleCount} 个分析模块`,
       owner

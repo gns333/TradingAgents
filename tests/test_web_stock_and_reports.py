@@ -17,6 +17,9 @@ def test_stock_search_matches_code_and_name(monkeypatch):
     # Keep the directory hermetic: rely on the bundled seed only, no akshare.
     monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
     monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}, raising=False
+    )
     monkeypatch.setattr(stock_directory, "_DIRECTORY", None)
     client = TestClient(api.create_app())
 
@@ -34,6 +37,9 @@ def test_stock_search_matches_code_and_name(monkeypatch):
 def test_stock_search_respects_limit(monkeypatch):
     monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
     monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}, raising=False
+    )
     monkeypatch.setattr(stock_directory, "_DIRECTORY", None)
     client = TestClient(api.create_app())
 
@@ -44,6 +50,9 @@ def test_stock_search_respects_limit(monkeypatch):
 
 def test_stock_search_matches_hong_kong_code_and_name(monkeypatch):
     monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}, raising=False
+    )
     monkeypatch.setattr(
         stock_directory,
         "_load_cached_hk_akshare_entries",
@@ -63,6 +72,39 @@ def test_stock_search_matches_hong_kong_code_and_name(monkeypatch):
 
     by_name = client.get("/api/stocks/search", params={"q": "\u817e\u8baf"}).json()
     assert by_name["items"][0]["name"] == "\u817e\u8baf\u63a7\u80a1"
+
+
+def test_stock_search_matches_common_etf_offline(monkeypatch):
+    monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}, raising=False
+    )
+    monkeypatch.setattr(stock_directory, "_DIRECTORY", None)
+    client = TestClient(api.create_app())
+
+    by_code = client.get("/api/stocks/search", params={"q": "510300"}).json()
+    assert by_code["items"][0] == {
+        "code": "510300.SH",
+        "name": "沪深300ETF",
+        "bare_code": "510300",
+    }
+    by_name = client.get("/api/stocks/search", params={"q": "沪深300ETF"}).json()
+    assert by_name["items"][0]["code"] == "510300.SH"
+
+
+def test_akshare_etf_snapshot_normalizes_code_and_name(monkeypatch):
+    frame = pd.DataFrame([{"代码": "510300", "名称": "沪深300ETF"}])
+    fake_akshare = type(
+        "FakeAkshare",
+        (),
+        {"fund_etf_spot_em": staticmethod(lambda: frame)},
+    )()
+    monkeypatch.setattr(stock_directory, "_import_akshare", lambda: fake_akshare)
+    fetcher = getattr(stock_directory, "_fetch_akshare_etf_directory", None)
+
+    assert fetcher is not None
+    assert fetcher() == [{"bare_code": "510300", "name": "沪深300ETF"}]
 
 
 def test_akshare_hong_kong_snapshot_normalizes_code_and_name(monkeypatch):

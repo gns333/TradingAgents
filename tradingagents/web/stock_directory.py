@@ -1,9 +1,9 @@
-"""China-stock directory for the web workbench autocomplete.
+"""China-instrument directory for the web workbench autocomplete.
 
 The directory powers search by code or name on the analysis form:
 
-* A curated Mainland A-share seed works offline.
-* AKShare A-share and Hong Kong snapshots are cached independently on disk and
+* Curated Mainland A-share and ETF seeds work offline.
+* AKShare A-share, ETF, and Hong Kong snapshots are cached independently on disk and
   merged into one searchable directory when the optional dependency is present.
 
 Lookups stay purely local on the request hot path; remote refresh happens only
@@ -25,6 +25,7 @@ from ..dataflows.hong_kong_symbol_utils import parse_hong_kong_symbol
 _CACHE_DIR = Path.home() / ".tradingagents" / "cache"
 _CACHE_FILE = _CACHE_DIR / "a_share_directory.json"
 _HK_CACHE_FILE = _CACHE_DIR / "hong_kong_stock_directory.json"
+_ETF_CACHE_FILE = _CACHE_DIR / "a_share_etf_directory.json"
 _CACHE_TTL_SECONDS = 60 * 60 * 24 * 7  # refresh AKShare snapshots weekly
 
 
@@ -116,6 +117,22 @@ _SEED_STOCKS: tuple[tuple[str, str], ...] = (
 )
 
 
+# A small offline ETF seed keeps common index funds discoverable even when the
+# optional AKShare snapshot cannot be refreshed.
+_SEED_ETFS: tuple[tuple[str, str], ...] = (
+    ("510300", "沪深300ETF"),
+    ("510050", "上证50ETF"),
+    ("510500", "中证500ETF"),
+    ("159915", "创业板ETF"),
+    ("588000", "科创50ETF"),
+    ("512100", "中证1000ETF"),
+    ("512880", "证券ETF"),
+    ("512010", "医药ETF"),
+    ("512660", "军工ETF"),
+    ("512690", "酒ETF"),
+)
+
+
 @dataclass(frozen=True)
 class StockEntry:
     """One Mainland China or Hong Kong instrument in the directory."""
@@ -138,7 +155,7 @@ def _canonical_from_bare(bare_code: str) -> str | None:
 
 def _build_seed_entries() -> dict[str, StockEntry]:
     entries: dict[str, StockEntry] = {}
-    for bare_code, name in _SEED_STOCKS:
+    for bare_code, name in (*_SEED_STOCKS, *_SEED_ETFS):
         canonical = _canonical_from_bare(bare_code)
         if canonical is None:
             continue
@@ -192,6 +209,14 @@ def _load_cached_hk_akshare_entries() -> dict[str, StockEntry]:
         _HK_CACHE_FILE,
         _fetch_akshare_hk_directory,
         _entries_from_hk_raw,
+    )
+
+
+def _load_cached_etf_akshare_entries() -> dict[str, StockEntry]:
+    return _load_cached_entries(
+        _ETF_CACHE_FILE,
+        _fetch_akshare_etf_directory,
+        _entries_from_raw,
     )
 
 
@@ -254,6 +279,29 @@ def _fetch_akshare_directory() -> list[dict[str, str]]:
     return snapshot
 
 
+def _fetch_akshare_etf_directory() -> list[dict[str, str]]:
+    """Fetch and normalize the Mainland ETF code/name table from AKShare."""
+    akshare = _import_akshare()
+    if akshare is None:
+        return []
+
+    try:
+        frame = akshare.fund_etf_spot_em()
+    except Exception:  # noqa: BLE001 - network / upstream failures are non-fatal
+        return []
+
+    snapshot: list[dict[str, str]] = []
+    try:
+        for _, row in frame.iterrows():
+            bare_code = str(row.get("代码", row.get("code", ""))).strip()
+            name = str(row.get("名称", row.get("name", ""))).strip()
+            if _canonical_from_bare(bare_code) is not None and name:
+                snapshot.append({"bare_code": bare_code, "name": name})
+    except Exception:  # noqa: BLE001 - defensive against schema drift
+        return []
+    return snapshot
+
+
 def _fetch_akshare_hk_directory() -> list[dict[str, str]]:
     """Fetch and normalize the Hong Kong code/name table from AKShare."""
     akshare = _import_akshare()
@@ -279,7 +327,7 @@ def _fetch_akshare_hk_directory() -> list[dict[str, str]]:
 
 
 class StockDirectory:
-    """Searchable, lazily-populated China-stock directory."""
+    """Searchable, lazily-populated China-instrument directory."""
 
     def __init__(self) -> None:
         self._entries: dict[str, StockEntry] | None = None
@@ -287,8 +335,9 @@ class StockDirectory:
     def _entries_map(self) -> dict[str, StockEntry]:
         if self._entries is None:
             merged = _build_seed_entries()
-            # AKShare snapshots overlay/extend the offline Mainland seed.
+            # AKShare snapshots overlay/extend the offline Mainland seeds.
             merged.update(_load_cached_akshare_entries())
+            merged.update(_load_cached_etf_akshare_entries())
             merged.update(_load_cached_hk_akshare_entries())
             self._entries = merged
         return self._entries

@@ -275,6 +275,18 @@ def test_workbench_js_contains_ticker_autocomplete_contract():
     assert 'role="combobox"' in js
 
 
+def test_trade_date_is_capped_and_validated_before_submission():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert 'id="trade-date" type="date" required' in js
+    assert "dateInput.max = todayChinaDate();" in js
+    assert "function validatedTradeDate()" in js
+    assert "分析日期不能晚于今天" in js
+    start = js.index("async function startAnalysis()")
+    start_body = js[start : start + 1400]
+    assert "const tradeDate = validatedTradeDate();" in start_body
+    assert "if (!tradeDate) return;" in start_body
+
 def test_trade_date_input_can_shrink_on_mobile_safari():
     css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
 
@@ -311,6 +323,18 @@ def test_report_history_card_reserves_a_separate_delete_column():
     assert all("position: absolute;" not in rule for rule in delete_rules)
 
 
+def test_report_center_emphasizes_analysis_date_in_list_and_detail():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert 'class="ho-trade-date report-date-badge"' in js
+    assert 'id="history-detail-date"' in js
+    assert "setText('#history-detail-date'" in js
+    assert ".report-date-badge {" in css
+    assert ".history-open .report-date-badge" in css
+    assert ".report-detail-date" in css
+
+
 def test_workbench_js_contains_provider_preset_contract():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
@@ -331,6 +355,8 @@ def test_workbench_hides_empty_admin_error_and_uses_stock_names_in_reports():
     assert ".form-status:empty" in css
     assert "function reportInstrumentLabel(report)" in js
     assert "stock_name" in js
+    assert "名称未记录" not in js
+    assert "item.stock_name ? ` · ${item.stock_name}` : ''" in js
 
 
 def test_workbench_js_contains_admin_workspace_contract():

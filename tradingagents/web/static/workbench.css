@@ -1670,6 +1670,23 @@ textarea { min-height: 68px; resize: vertical; }
 .history-open .ho-meta { display: flex; align-items: center; width: 100%; min-width: 0; gap: 7px; overflow: hidden; color: var(--faint); font-size: 11px; }
 .history-open .ho-meta span { flex: none; white-space: nowrap; }
 .history-open .ho-meta span + span:not([hidden])::before { content: "·"; margin-right: 7px; color: var(--line); }
+.report-date-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--line));
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 700 11px/1.4 var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.history-open .report-date-badge { color: var(--accent); }
+.report-detail-date { flex: none; margin-left: auto; }
+.report-detail-date[hidden] { display: none; }
 .history-open .ho-owner {
   display: block;
   width: 100%;

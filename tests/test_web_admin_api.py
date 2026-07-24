@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tradingagents.web import api
+from tradingagents.web import api, stock_directory
 from tradingagents.web.admin_store import AdminStore
 from tradingagents.web.events import AnalysisEvent
 from tradingagents.web.identity import CloudBaseIdentityProvider
@@ -94,6 +94,44 @@ def test_create_run_defaults_to_all_four_analysts(tmp_path: Path):
         "fundamentals",
         "social",
     ]
+
+
+def test_create_run_rejects_future_trade_date(tmp_path: Path):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    client = TestClient(
+        api.create_app(store=store, task_service=FakeTaskService())
+    )
+
+    response = client.post(
+        "/api/runs",
+        json={"ticker": "600519.SH", "trade_date": "2999-01-01"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "分析日期不能晚于今天"
+    assert store.get_active_analysis_run("anonymous") is None
+
+
+def test_create_run_resolves_common_etf_name(tmp_path: Path, monkeypatch):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}, raising=False
+    )
+    directory = stock_directory.StockDirectory()
+    monkeypatch.setattr(api, "get_stock_directory", lambda: directory)
+    client = TestClient(
+        api.create_app(store=store, task_service=FakeTaskService())
+    )
+
+    response = client.post(
+        "/api/runs",
+        json={"ticker": "510300.SH", "trade_date": "2026-07-23"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["run"]["stock_name"] == "沪深300ETF"
 
 
 def test_admin_api_initializes_login_and_saves_masked_model_config(tmp_path: Path, monkeypatch):

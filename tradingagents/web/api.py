@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,19 @@ from .task_service import AnalysisTaskService, create_task_service
 
 STATIC_DIR = Path(__file__).with_name("static")
 ADMIN_HTML = STATIC_DIR / "admin.html"
+_CHINA_TIMEZONE = timezone(timedelta(hours=8))
+
+
+def _validate_analysis_trade_date(value: str) -> str:
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("分析日期格式无效，请使用 YYYY-MM-DD") from exc
+    if parsed > datetime.now(_CHINA_TIMEZONE).date():
+        raise ValueError("分析日期不能晚于今天")
+    return parsed.isoformat()
+
+
 CLOUDBASE_SDK_URL = (
     "https://static.cloudbase.net/"
     "cloudbase-js-sdk/2.28.6/cloudbase.full.js"
@@ -485,6 +498,10 @@ def create_app(
         trade_date = str(payload.get("trade_date") or "").strip()
         if not ticker or not trade_date:
             raise HTTPException(status_code=400, detail="ticker and trade_date are required")
+        try:
+            trade_date = _validate_analysis_trade_date(trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         analysts = [
             str(item).strip()
             for item in (

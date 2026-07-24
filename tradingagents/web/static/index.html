@@ -157,7 +157,8 @@
         <form class="cloudbase-auth-panel" id="cloudbase-register-panel" data-auth-form="register" hidden>
           <div class="cloudbase-auth-field">
             <label for="cloudbase-register-email">邮箱</label>
-            <input id="cloudbase-register-email" type="email" autocomplete="email" placeholder="name@example.com" required>
+            <input id="cloudbase-register-email" type="email" autocomplete="email" placeholder="name@example.com" aria-describedby="cloudbase-register-email-error" required>
+            <p class="cloudbase-field-error" id="cloudbase-register-email-error" aria-live="polite" hidden></p>
           </div>
           <div class="cloudbase-auth-field">
             <label for="cloudbase-register-code">邮箱验证码</label>
@@ -169,21 +170,23 @@
           <div class="cloudbase-auth-field">
             <label for="cloudbase-register-password">设置密码</label>
             <div class="cloudbase-password-field">
-              <input id="cloudbase-register-password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" minlength="8" maxlength="64" required>
+              <input id="cloudbase-register-password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" minlength="8" maxlength="64" aria-describedby="cloudbase-register-password-error" required>
               <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-register-password" aria-label="显示密码" title="显示密码">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
               </button>
             </div>
             <p class="cloudbase-auth-helper">8-64 位，至少包含一个字母和一个数字。</p>
+            <p class="cloudbase-field-error" id="cloudbase-register-password-error" aria-live="polite" hidden></p>
           </div>
           <div class="cloudbase-auth-field">
             <label for="cloudbase-register-confirm">确认密码</label>
             <div class="cloudbase-password-field">
-              <input id="cloudbase-register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" minlength="8" maxlength="64" required>
+              <input id="cloudbase-register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" minlength="8" maxlength="64" aria-describedby="cloudbase-register-confirm-error" required>
               <button class="cloudbase-password-toggle" type="button" data-password-toggle="cloudbase-register-confirm" aria-label="显示密码" title="显示密码">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
               </button>
             </div>
+            <p class="cloudbase-field-error" id="cloudbase-register-confirm-error" aria-live="polite" hidden></p>
           </div>
           <button class="cloudbase-auth-submit" type="submit" id="cloudbase-sign-up">创建账号</button>
           <p class="cloudbase-auth-switch">已有账号？ <button class="cloudbase-auth-text-button" type="button" data-auth-mode="login">返回登录</button></p>

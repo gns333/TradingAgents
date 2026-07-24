@@ -493,6 +493,61 @@
     return password.reportValidity() && confirm.reportValidity();
   }
 
+  function setCloudBaseFieldError(input, message) {
+    if (!input) return;
+    const error = qs(`#${input.id}-error`);
+    const invalid = Boolean(message);
+    input.setAttribute('aria-invalid', String(invalid));
+    if (!error) return;
+    error.textContent = message || '';
+    error.hidden = !invalid;
+  }
+
+  function clearCloudBaseFieldError(input) {
+    setCloudBaseFieldError(input, '');
+  }
+
+  function focusCloudBaseInvalidField(input) {
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function validateCloudBaseRegistrationFields() {
+    const emailInput = qs('#cloudbase-register-email');
+    const passwordInput = qs('#cloudbase-register-password');
+    const confirmInput = qs('#cloudbase-register-confirm');
+    const email = emailInput?.value.trim() || '';
+    const password = passwordInput?.value || '';
+    const confirm = confirmInput?.value || '';
+    const passwordStrongEnough = password.length >= 8
+      && password.length <= 64
+      && /[A-Za-z]/.test(password)
+      && /[0-9]/.test(password);
+    const validations = [
+      {
+        input: emailInput,
+        message: email && emailInput?.checkValidity() ? '' : '请输入有效邮箱地址'
+      },
+      {
+        input: passwordInput,
+        message: passwordStrongEnough ? '' : '密码需为 8-64 位，并同时包含字母和数字'
+      },
+      {
+        input: confirmInput,
+        message: !confirm
+          ? '请再次输入密码'
+          : confirm === password ? '' : '两次输入的密码不一致'
+      }
+    ];
+    validations.forEach(({ input, message }) => setCloudBaseFieldError(input, message));
+    const firstInvalid = validations.find(({ message }) => Boolean(message))?.input;
+    if (!firstInvalid) return true;
+    setStatus('#cloudbase-auth-status', '请检查标记的注册信息', false);
+    focusCloudBaseInvalidField(firstInvalid);
+    return false;
+  }
+
   function startCloudBaseCodeCountdown(button) {
     const existing = cloudBaseCodeTimers.get(button);
     if (existing) window.clearInterval(existing);
@@ -551,12 +606,12 @@
   async function submitCloudBaseVerification(mode) {
     const emailInput = qs(`#cloudbase-${mode}-email`);
     const email = emailInput?.value.trim().toLowerCase() || '';
-    if (!email || !emailInput?.checkValidity()) {
+    if (mode === 'register' && !validateCloudBaseRegistrationFields()) return;
+    if (mode !== 'register' && (!email || !emailInput?.checkValidity())) {
       setStatus('#cloudbase-auth-status', '请输入有效邮箱', false);
       emailInput?.reportValidity();
       return;
     }
-    if (mode === 'register' && !validateCloudBasePasswordFields(mode)) return;
     const button = qs(mode === 'register' ? '#cloudbase-send-code' : '#cloudbase-send-reset-code');
     if (button) button.disabled = true;
     setStatus('#cloudbase-auth-status', '正在发送验证码…', undefined);
@@ -586,7 +641,7 @@
     const emailInput = qs('#cloudbase-register-email');
     const email = emailInput?.value.trim().toLowerCase() || '';
     const form = qs('#cloudbase-register-panel');
-    if (!form?.reportValidity() || !validateCloudBasePasswordFields('register')) return;
+    if (!validateCloudBaseRegistrationFields() || !form?.reportValidity()) return;
     const code = qs('#cloudbase-register-code').value.trim();
 
     const button = qs('#cloudbase-sign-up');
@@ -2641,10 +2696,15 @@
     });
     ['register', 'reset'].forEach(mode => {
       ['email', 'password', 'confirm'].forEach(field => {
-        qs(`#cloudbase-${mode}-${field}`)?.addEventListener('input', () => {
+        const input = qs(`#cloudbase-${mode}-${field}`);
+        input?.addEventListener('input', () => {
           const invalidatesChallenge = mode === 'register' || field === 'email';
           if (invalidatesChallenge && state.cloudbaseVerification?.mode === mode) {
             state.cloudbaseVerification = null;
+          }
+          clearCloudBaseFieldError(input);
+          if (mode === 'register' && field === 'password') {
+            clearCloudBaseFieldError(qs('#cloudbase-register-confirm'));
           }
           qs(`#cloudbase-${mode}-password`)?.setCustomValidity('');
           qs(`#cloudbase-${mode}-confirm`)?.setCustomValidity('');

@@ -1304,6 +1304,18 @@ textarea { min-height: 68px; resize: vertical; }
 .cloudbase-auth-code-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 8px; }
 .cloudbase-auth-code-button { min-height: 48px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
 .cloudbase-auth-helper { margin: 0; color: var(--faint); font-size: 11px; }
+
+.cloudbase-field-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.cloudbase-field-error[hidden] { display: none; }
+.cloudbase-auth-field input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 16%, transparent);
+}
 .cloudbase-auth-submit { width: 100%; min-height: 48px; margin-top: 2px; font-size: 15px; }
 .cloudbase-auth-switch { margin: -4px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
 .cloudbase-auth-switch button { vertical-align: baseline; }

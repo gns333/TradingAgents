@@ -396,6 +396,26 @@ def test_cloudbase_email_registration_ui_and_sdk_flow_exist():
     assert "'/api/register'" in js
 
 
+def test_cloudbase_registration_validation_is_visible_and_focuses_first_error():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    for field in ("email", "password", "confirm"):
+        assert f'id="cloudbase-register-{field}-error"' in html
+
+    assert ".cloudbase-field-error" in css
+    assert "function setCloudBaseFieldError(input, message)" in js
+    assert "function focusCloudBaseInvalidField(input)" in js
+    assert "function validateCloudBaseRegistrationFields()" in js
+    assert "focusCloudBaseInvalidField(firstInvalid)" in js
+    assert "clearCloudBaseFieldError(input)" in js
+
+    send_start = js.index("async function submitCloudBaseVerification(mode)")
+    send_body = js[send_start : send_start + 1000]
+    assert "mode === 'register' && !validateCloudBaseRegistrationFields()" in send_body
+
+
 def test_cloudbase_password_login_and_recovery_sdk_flows_exist():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")

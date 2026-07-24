@@ -1252,7 +1252,29 @@
     node.className = `analysis-notice ${mode}`.trim();
   }
 
+
+  function hasAnalysisIdentity() {
+    return state.runtime.auth !== 'cloudbase'
+      || Boolean(state.accessToken && state.currentUser);
+  }
+
+  function showAnalysisLoginPrompt(message) {
+    state.accessToken = '';
+    state.currentUser = null;
+    setAdminAvailable(false);
+    setRunState('\u7b49\u5f85\u767b\u5f55', '');
+    setAnalysisStatus(message, 'warning');
+    setCloudBaseAuthMode('login');
+    openCloudBaseAuthModal(message, false);
+    const button = qs('#run-analysis');
+    if (button) button.disabled = false;
+  }
+
   async function startAnalysis() {
+    if (!hasAnalysisIdentity()) {
+      showAnalysisLoginPrompt('\u8bf7\u5148\u767b\u5f55\u540e\u518d\u5f00\u59cb\u5206\u6790');
+      return;
+    }
     resetRunView();
     const button = qs('#run-analysis');
     if (button) button.disabled = true;
@@ -1283,6 +1305,10 @@
       });
       await attachToRun(result.run);
     } catch (err) {
+      if (err.status === 401 && state.runtime.auth === 'cloudbase') {
+        showAnalysisLoginPrompt('\u767b\u5f55\u72b6\u6001\u5df2\u5931\u6548\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55\u540e\u5f00\u59cb\u5206\u6790');
+        return;
+      }
       if (err.status === 409 && err.detail?.run) {
         await attachToRun(err.detail.run);
         return;

@@ -133,6 +133,24 @@ def test_api_json_authenticates_headerless_cloudbase_requests():
     assert "Authorization: `Bearer ${state.accessToken}`" in api_body
 
 
+def test_start_analysis_prompts_for_cloudbase_login_before_request():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert "function hasAnalysisIdentity()" in js
+    assert "function showAnalysisLoginPrompt(message)" in js
+
+    start = js.index("async function startAnalysis()")
+    body = js[start : start + 2200]
+    guard = body.index("if (!hasAnalysisIdentity())")
+    reset = body.index("resetRunView()")
+
+    assert guard < reset
+    assert "showAnalysisLoginPrompt(" in body
+    assert "err.status === 401 && state.runtime.auth === 'cloudbase'" in body
+    assert "setCloudBaseAuthMode('login')" in js
+
+
+
 def test_workbench_js_contains_report_center_contract():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 

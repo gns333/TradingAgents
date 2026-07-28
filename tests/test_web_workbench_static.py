@@ -275,6 +275,23 @@ def test_workbench_js_contains_ticker_autocomplete_contract():
     assert 'role="combobox"' in js
 
 
+def test_ticker_name_chip_uses_wide_shrinkable_ellipsis():
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    input_rules = re.findall(r"\.ticker-combo input\s*\{([^}]*)\}", css)
+    assert input_rules
+    assert "padding-right: min(48%, 276px);" in input_rules[-1]
+
+    chip_rules = re.findall(r"\.ticker-name-chip\s*\{([^}]*)\}", css)
+    assert chip_rules
+    chip_rule = next(rule for rule in chip_rules if "position: absolute;" in rule)
+    assert "display: block;" in chip_rule
+    assert "max-width: min(45%, 260px);" in chip_rule
+    assert "overflow: hidden;" in chip_rule
+    assert "text-overflow: ellipsis;" in chip_rule
+    assert "white-space: nowrap;" in chip_rule
+
+
 def test_trade_date_is_capped_and_validated_before_submission():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 

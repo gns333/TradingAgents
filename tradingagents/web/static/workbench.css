@@ -1474,16 +1474,15 @@ textarea { min-height: 68px; resize: vertical; }
   max-width: 100%;
 }
 .analysis-launchbar .launch-field:first-child input { font-family: var(--mono); font-weight: 600; }
-.ticker-combo input { padding-right: 104px; }
+.ticker-combo input { padding-right: min(48%, 276px); }
 .ticker-name-chip {
   position: absolute;
   right: 6px;
   top: 50%;
   transform: translateY(-50%);
-  display: inline-flex;
-  align-items: center;
+  display: block;
   min-height: 26px;
-  max-width: 88px;
+  max-width: min(45%, 260px);
   padding: 0 9px;
   overflow: hidden;
   border: 1px solid var(--line-soft);
@@ -1492,6 +1491,7 @@ textarea { min-height: 68px; resize: vertical; }
   color: var(--muted);
   font-size: 12px;
   font-weight: 550;
+  line-height: 24px;
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;

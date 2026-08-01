@@ -238,11 +238,19 @@ def test_reports_use_local_markdown_it_and_dompurify():
 
 def test_report_markdown_theme_has_readability_and_mobile_table_rules():
     css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
     assert ".markdown h2::before" in css
+    assert ".markdown-table-scroll" in css
     assert ".markdown table" in css
-    assert "display: block;" in css
     assert "overflow-x: auto;" in css
+    assert "markdownRenderer.renderer.rules.table_open" in js
+    assert "markdownRenderer.renderer.rules.table_close" in js
+    table_rule = re.search(r"\.markdown table\s*\{([^}]*)\}", css)
+    assert table_rule
+    assert "display: block;" not in table_rule.group(1)
+    assert "width: 100%;" in table_rule.group(1)
+    assert "margin: 0;" in table_rule.group(1)
     assert ".markdown tbody tr:nth-child(even)" in css
     assert ".markdown blockquote" in css
     assert ".debate-turn-body.markdown" in css

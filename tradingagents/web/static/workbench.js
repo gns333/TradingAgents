@@ -1559,11 +1559,21 @@
   if (markdownRenderer) {
     const defaultLinkOpen = markdownRenderer.renderer.rules.link_open
       || ((tokens, index, options, env, renderer) => renderer.renderToken(tokens, index, options));
+    const defaultTableOpen = markdownRenderer.renderer.rules.table_open
+      || ((tokens, index, options, env, renderer) => renderer.renderToken(tokens, index, options));
+    const defaultTableClose = markdownRenderer.renderer.rules.table_close
+      || ((tokens, index, options, env, renderer) => renderer.renderToken(tokens, index, options));
     markdownRenderer.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
       tokens[index].attrSet('target', '_blank');
       tokens[index].attrSet('rel', 'noopener noreferrer');
       return defaultLinkOpen(tokens, index, options, env, renderer);
     };
+    markdownRenderer.renderer.rules.table_open = (tokens, index, options, env, renderer) => (
+      '<div class="markdown-table-scroll">' + defaultTableOpen(tokens, index, options, env, renderer)
+    );
+    markdownRenderer.renderer.rules.table_close = (tokens, index, options, env, renderer) => (
+      defaultTableClose(tokens, index, options, env, renderer) + '</div>'
+    );
   }
 
   function escapeHtml(value) {

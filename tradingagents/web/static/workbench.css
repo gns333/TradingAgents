@@ -862,7 +862,7 @@ textarea { min-height: 68px; resize: vertical; }
   border-bottom-color: var(--accent);
 }
 
-.report-article { max-width: 940px; padding: 16px 15px; margin: 0 auto; }
+.report-article { width: 100%; max-width: 1120px; padding: 16px 15px; margin: 0 auto; }
 
 .report-summary-head {
   display: flex;
@@ -978,7 +978,7 @@ textarea { min-height: 68px; resize: vertical; }
 .markdown hr { margin: 25px 0; border: 0; border-top: 1px solid var(--line); }
 
 /* Debate reports use chronological cards instead of mixing speakers in prose. */
-.report-article.debate-report { max-width: 960px; }
+.report-article.debate-report { max-width: 1160px; }
 .debate-timeline { display: grid; gap: 0; }
 .debate-overview {
   display: flex;
@@ -1639,7 +1639,7 @@ textarea { min-height: 68px; resize: vertical; }
   backdrop-filter: blur(8px);
 }
 .report-tabs { position: static; padding-top: 8px; }
-.report-article { max-width: 860px; padding: 20px 18px 24px; }
+.report-article { max-width: 1120px; padding: 20px 24px 28px; }
 .report-article > h1:first-child, .report-article > h2:first-child { margin-top: 0; }
 .markdown hr { margin: 22px 0; border: 0; border-top: 1px solid var(--line); }
 .markdown tbody tr:hover { background: color-mix(in srgb, var(--surface-2) 58%, transparent); }

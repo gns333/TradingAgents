@@ -124,6 +124,26 @@ class PolymarketRoutingTests(unittest.TestCase):
             out = interface.route_to_vendor("get_prediction_markets", "fed", 5)
         self.assertEqual(out, "POLY_OK")
 
+    def test_china_profile_disables_prediction_market_calls(self):
+        vendor = mock.Mock(return_value="SHOULD_NOT_RUN")
+        set_config(
+            {
+                "market_profile": "china_mainland",
+                "data_vendors": {"prediction_markets": "disabled"},
+            }
+        )
+        with mock.patch.dict(
+            interface.VENDOR_METHODS,
+            {"get_prediction_markets": {"polymarket": vendor}},
+            clear=False,
+        ):
+            out = interface.route_to_vendor("get_prediction_markets", "recession", 5)
+
+        vendor.assert_not_called()
+        self.assertIn("Source disabled", out)
+        self.assertIn("china_mainland", out)
+        self.assertIn("do not fabricate", out)
+
 
 if __name__ == "__main__":
     unittest.main()

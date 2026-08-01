@@ -9,9 +9,11 @@ from tradingagents.dataflows.interface import route_to_vendor
 def get_macro_indicators(
     indicator: Annotated[
         str,
-        "Macro indicator: a friendly alias such as 'cpi', 'core_pce', "
+        "Macro indicator supported by the active market profile. China aliases "
+        "include 'cpi', 'ppi', 'pmi', 'gdp', 'lpr', 'money_supply', and "
+        "'social_financing'. FRED profiles also support 'core_pce', "
         "'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve', "
-        "'real_gdp', 'vix', or a raw FRED series ID such as 'CPIAUCSL'.",
+        "'real_gdp', 'vix', or a raw FRED series ID.",
     ],
     curr_date: Annotated[str, "Current date in yyyy-mm-dd format; the end of the window"],
     look_back_days: Annotated[
@@ -19,14 +21,13 @@ def get_macro_indicators(
     ] = None,
 ) -> str:
     """
-    Retrieve a macroeconomic indicator time series from FRED (Federal Reserve
-    Economic Data): policy rates, Treasury yields, inflation, labor, and growth.
-    Returns the series title, units, frequency, the latest value, the change
-    over the window, and a recent observation table. Uses the configured
-    macro_data vendor.
+    Retrieve a macroeconomic indicator from the configured macro-data vendor.
+    Supported aliases and output fields depend on the active market profile.
+    The result identifies the actual source and must not be relabelled as a
+    different vendor.
 
     Args:
-        indicator (str): Friendly alias or raw FRED series ID
+        indicator (str): Alias supported by the active macro-data vendor
         curr_date (str): Current date in yyyy-mm-dd format
         look_back_days (int): Trailing window length; omit for a 1-year window
 

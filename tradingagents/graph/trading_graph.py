@@ -28,7 +28,7 @@ from tradingagents.agents.utils.agent_utils import (
     resolve_instrument_identity,
 )
 from tradingagents.agents.utils.memory import TradingMemoryLog
-from tradingagents.dataflows.config import set_config
+from tradingagents.dataflows.config import replace_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
@@ -67,7 +67,7 @@ class TradingAgentsGraph:
         self.callbacks = callbacks or []
 
         # Update the interface's config
-        set_config(self.config)
+        replace_config(self.config)
 
         # Create necessary directories
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
@@ -111,6 +111,7 @@ class TradingAgentsGraph:
             self.deep_thinking_llm,
             self.tool_nodes,
             self.conditional_logic,
+            config=self.config,
         )
 
         self.propagator = Propagator(
@@ -164,6 +165,19 @@ class TradingAgentsGraph:
 
     def _create_tool_nodes(self) -> dict[str, ToolNode]:
         """Create tool nodes for different data sources using abstract methods."""
+        graph_config = getattr(self, "config", {}) if self is not None else {}
+        news_tools = [
+            get_news,
+            get_global_news,
+            get_insider_transactions,
+            get_macro_indicators,
+        ]
+        prediction_vendor = str(
+            graph_config.get("data_vendors", {}).get("prediction_markets", "")
+        ).strip().lower()
+        if prediction_vendor not in {"disabled", "none", "off"}:
+            news_tools.append(get_prediction_markets)
+
         return {
             "market": ToolNode(
                 [
@@ -183,16 +197,7 @@ class TradingAgentsGraph:
                     get_news,
                 ]
             ),
-            "news": ToolNode(
-                [
-                    # News and insider information
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                    get_macro_indicators,
-                    get_prediction_markets,
-                ]
-            ),
+            "news": ToolNode(news_tools),
             "fundamentals": ToolNode(
                 [
                     # Fundamental analysis tools
@@ -332,6 +337,7 @@ class TradingAgentsGraph:
         a per-ticker SqliteSaver so a crashed run can resume from the last
         successful node on a subsequent invocation with the same ticker+date.
         """
+        replace_config(self.config)
         self.ticker = company_name
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.

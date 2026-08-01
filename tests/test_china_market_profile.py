@@ -51,6 +51,7 @@ class ChinaMarketProfileTests(unittest.TestCase):
         )
         self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["news_data"], "akshare,yfinance")
         self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["macro_data"], "akshare")
+        self.assertEqual(dc.DEFAULT_CONFIG["data_vendors"]["prediction_markets"], "disabled")
 
     def test_china_optional_dependencies_include_baostock(self):
         with Path("pyproject.toml").open("rb") as handle:

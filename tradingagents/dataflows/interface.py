@@ -207,6 +207,13 @@ def route_to_vendor(method: str, *args, **kwargs):
     """Route method calls to appropriate vendor implementation with fallback support."""
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
+    if str(vendor_config).strip().lower() in {"disabled", "none", "off"}:
+        profile = get_config().get("market_profile", "default")
+        return (
+            f"DATA_UNAVAILABLE: Source disabled by market profile '{profile}'. "
+            f"Optional {category} is not enabled for this analysis; proceed without "
+            "it and do not fabricate values or implied probabilities."
+        )
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
 
     if method not in VENDOR_METHODS:

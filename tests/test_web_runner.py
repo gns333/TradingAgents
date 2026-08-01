@@ -108,6 +108,8 @@ class WebRunnerTests(unittest.TestCase):
             config["data_vendors"]["fundamental_data"],
             "akshare,baostock,yfinance",
         )
+        self.assertEqual(config["data_vendors"]["macro_data"], "akshare")
+        self.assertEqual(config["data_vendors"]["prediction_markets"], "disabled")
 
     def test_non_a_share_request_keeps_default_market_profile(self):
         config = config_for_request(AnalysisRequest(ticker="AAPL", trade_date="2026-07-11"))

@@ -12,7 +12,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 @pytest.mark.unit
 def test_market_toolnode_can_execute_verified_snapshot():
-    # _create_tool_nodes does not use self -> call unbound (avoids building LLMs).
+    # The factory tolerates an unbound call so this test avoids building LLMs.
     nodes = TradingAgentsGraph._create_tool_nodes(None)
     market_tools = set(nodes["market"].tools_by_name)
     assert "get_verified_market_snapshot" in market_tools, (

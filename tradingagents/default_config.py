@@ -48,7 +48,7 @@ MARKET_PROFILES = {
             "fundamental_data": "akshare,baostock,yfinance",
             "news_data": "akshare,yfinance",
             "macro_data": "akshare",
-            "prediction_markets": "polymarket",
+            "prediction_markets": "disabled",
         },
         "benchmark_map": {
             ".SH": "000001.SS",

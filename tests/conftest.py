@@ -39,21 +39,21 @@ def _dummy_api_keys(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_config():
-    """Reset the global dataflows config before and after each test.
+    """Reset process and task-local dataflow config before and after each test.
 
     ``set_config`` merges (it never clears keys absent from the override), so a
     test that sets e.g. ``tool_vendors`` would otherwise leak into later tests
-    and make routing behavior order-dependent. Replace the global outright so
-    every test starts from a clean DEFAULT_CONFIG.
+    in the same context. Reset both layers so every test starts from a clean
+    DEFAULT_CONFIG.
     """
     import copy
 
     import tradingagents.dataflows.config as config_module
     import tradingagents.default_config as default_config
 
-    config_module._config = copy.deepcopy(default_config.DEFAULT_CONFIG)
+    config_module.reset_config(copy.deepcopy(default_config.DEFAULT_CONFIG))
     yield
-    config_module._config = copy.deepcopy(default_config.DEFAULT_CONFIG)
+    config_module.reset_config(copy.deepcopy(default_config.DEFAULT_CONFIG))
 
 
 @pytest.fixture()

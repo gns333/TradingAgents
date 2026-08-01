@@ -362,9 +362,9 @@ def get_global_news(
 def get_macro_data(indicator: str, curr_date: str, look_back_days: int | None = None) -> str:
     """Return China macro context from AKShare.
 
-    The existing macro tool passes an indicator name. AKShare's macro endpoint
-    names vary by release, so this first supports a small stable alias table and
-    then falls back to market/macro headlines with an explicit source label.
+    The macro tool passes an indicator name. Only stable China-specific aliases
+    are accepted here; unsupported/FRED-only indicators return an explicit
+    unavailable sentinel instead of substituting unrelated macro headlines.
     """
     ak = _akshare()
     aliases = {
@@ -382,7 +382,12 @@ def get_macro_data(indicator: str, curr_date: str, look_back_days: int | None = 
         df = getattr(ak, endpoint)()
         return _format_frame(f"China macro indicator: {indicator}", endpoint, df, limit=50)
 
-    return get_global_news(curr_date, look_back_days=look_back_days, limit=10)
+    supported = ", ".join(aliases)
+    return (
+        f"DATA_UNAVAILABLE: Source: AKShare. Macro indicator '{indicator}' is not "
+        f"supported by the China mainland macro profile. Supported indicators: "
+        f"{supported}. Do not substitute news, FRED data, or estimated values."
+    )
 
 
 def get_insider_transactions(ticker: str) -> str:

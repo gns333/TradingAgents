@@ -64,6 +64,34 @@ class AkshareVendorTests(unittest.TestCase):
 
         fake_ak.stock_zh_a_daily.assert_not_called()
 
+    def test_china_macro_result_identifies_akshare_source(self):
+        from tradingagents.dataflows import akshare_stock
+
+        fake_ak = mock.Mock()
+        fake_ak.macro_china_cpi.return_value = akshare_stock.pd.DataFrame(
+            [{"date": "2026-01", "value": 1.2}]
+        )
+
+        with mock.patch.object(akshare_stock, "_akshare", return_value=fake_ak):
+            out = akshare_stock.get_macro_data("cpi", "2026-02-01")
+
+        self.assertIn("# Source: AKShare macro_china_cpi", out)
+
+    def test_fred_only_indicator_does_not_fall_back_to_news(self):
+        from tradingagents.dataflows import akshare_stock
+
+        with (
+            mock.patch.object(akshare_stock, "_akshare", return_value=mock.Mock()),
+            mock.patch.object(akshare_stock, "get_global_news") as global_news,
+        ):
+            out = akshare_stock.get_macro_data("fed_funds_rate", "2026-02-01")
+
+        global_news.assert_not_called()
+        self.assertIn("DATA_UNAVAILABLE: Source: AKShare", out)
+        self.assertIn("fed_funds_rate", out)
+        self.assertIn("Supported indicators", out)
+        self.assertIn("Do not substitute news", out)
+
 
 if __name__ == "__main__":
     unittest.main()

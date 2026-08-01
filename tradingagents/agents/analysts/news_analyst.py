@@ -11,7 +11,56 @@ from tradingagents.agents.utils.agent_utils import (
 )
 
 
-def create_news_analyst(llm):
+_DISABLED_VENDORS = {"disabled", "none", "off"}
+
+
+def _prediction_markets_enabled(config: dict | None) -> bool:
+    vendor = str(
+        (config or {}).get("data_vendors", {}).get("prediction_markets", "polymarket")
+    ).strip().lower()
+    return vendor not in _DISABLED_VENDORS
+
+
+def _news_system_message(asset_label: str, config: dict | None) -> str:
+    profile = str((config or {}).get("market_profile", "default"))
+    source_rule = (
+        "For every quantitative claim, name the source exactly as identified in "
+        "the tool result. Never relabel AKShare output as FRED, or news as a "
+        "macroeconomic time series. If a tool returns DATA_UNAVAILABLE, state the "
+        "gap once and do not fabricate or estimate a replacement."
+    )
+    if profile == "china_mainland":
+        return (
+            "You are a news researcher analyzing a Mainland China security and "
+            "China-relevant market conditions over the past week. Use "
+            f"get_news(query, start_date, end_date) for {asset_label}-specific "
+            "news, get_global_news(curr_date, look_back_days, limit) for China "
+            "policy and market headlines, and get_macro_indicators(indicator, "
+            "curr_date, look_back_days) for AKShare China macro series. Request "
+            "only China-profile aliases: cpi, ppi, pmi, gdp, lpr, money_supply, "
+            "and social_financing. Do not request indicators outside this list "
+            "or any overseas-source series. Prediction-market probabilities are "
+            "disabled for this profile; do not claim or infer market-implied probabilities. "
+            + source_rule
+        )
+    return (
+        "You are a news researcher tasked with analyzing recent news and trends "
+        "over the past week. Use get_news(query, start_date, end_date) for "
+        f"{asset_label}-specific or targeted news, get_global_news(curr_date, "
+        "look_back_days, limit) for broader macroeconomic news, and "
+        "get_macro_indicators(indicator, curr_date, look_back_days) for "
+        "quantitative macro data from the configured source. "
+        + (
+            "Use get_prediction_markets(topic, limit) for live market-implied "
+            "probabilities of forward-looking events. "
+            if _prediction_markets_enabled(config)
+            else ""
+        )
+        + source_rule
+    )
+
+
+def create_news_analyst(llm, config: dict | None = None):
     def news_analyst_node(state):
         current_date = state["trade_date"]
         asset_type = state.get("asset_type", "stock")
@@ -22,11 +71,12 @@ def create_news_analyst(llm):
             get_news,
             get_global_news,
             get_macro_indicators,
-            get_prediction_markets,
         ]
+        if _prediction_markets_enabled(config):
+            tools.append(get_prediction_markets)
 
         system_message = (
-            f"You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(query, start_date, end_date) for {asset_label}-specific or targeted news searches, get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news, get_macro_indicators(indicator, curr_date, look_back_days) to ground macro commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve'), and get_prediction_markets(topic, limit) for live market-implied probabilities of forward-looking events (e.g. 'Fed rate cut', 'recession 2026', geopolitical or sector events). Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
+            _news_system_message(asset_label, config)
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_report_format_instruction()
             + get_language_instruction()

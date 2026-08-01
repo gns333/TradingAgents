@@ -166,6 +166,12 @@ def stream_analysis_events(
         },
     )
 
+    graph_config = getattr(graph, "config", None)
+    if isinstance(graph_config, dict):
+        from tradingagents.dataflows.config import replace_config
+
+        replace_config(graph_config)
+
     instrument_context = graph.resolve_instrument_context(request.ticker, request.asset_type)
     initial_state = graph.propagator.create_initial_state(
         request.ticker,

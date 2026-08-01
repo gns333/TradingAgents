@@ -6,14 +6,15 @@ The directory powers search by code or name on the analysis form:
 * AKShare A-share, ETF, and Hong Kong snapshots are cached independently on disk and
   merged into one searchable directory when the optional dependency is present.
 
-Lookups stay purely local on the request hot path; remote refresh happens only
-when the lazy directory is first populated and its weekly cache is stale.
+Lookups stay purely local on the request hot path. Existing snapshots are loaded
+immediately and stale snapshots are refreshed in a background thread at startup.
 """
 
 from __future__ import annotations
 
 import importlib
 import json
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,7 @@ _CACHE_FILE = _CACHE_DIR / "a_share_directory.json"
 _HK_CACHE_FILE = _CACHE_DIR / "hong_kong_stock_directory.json"
 _ETF_CACHE_FILE = _CACHE_DIR / "a_share_etf_directory.json"
 _CACHE_TTL_SECONDS = 60 * 60 * 24 * 7  # refresh AKShare snapshots weekly
+_REFRESH_RETRY_SECONDS = 60 * 5
 
 
 # A compact, hand-maintained seed covering the most frequently analysed A-share
@@ -172,19 +174,36 @@ def _import_akshare() -> Any | None:
 
 def _load_cached_entries(
     cache_file: Path,
+    converter: Any,
+) -> dict[str, StockEntry]:
+    """Load an existing snapshot without performing network I/O."""
+    try:
+        if cache_file.exists():
+            raw = json.loads(cache_file.read_text(encoding="utf-8"))
+            return converter(raw)
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _cache_is_stale(cache_file: Path) -> bool:
+    try:
+        if not cache_file.exists():
+            return True
+        if time.time() - cache_file.stat().st_mtime >= _CACHE_TTL_SECONDS:
+            return True
+        json.loads(cache_file.read_text(encoding="utf-8"))
+        return False
+    except (OSError, ValueError):
+        return True
+
+
+def _refresh_cached_entries(
+    cache_file: Path,
     fetcher: Any,
     converter: Any,
 ) -> dict[str, StockEntry]:
-    """Load a cached AKShare snapshot, refreshing it when stale."""
-    try:
-        if cache_file.exists():
-            age = time.time() - cache_file.stat().st_mtime
-            if age < _CACHE_TTL_SECONDS:
-                raw = json.loads(cache_file.read_text(encoding="utf-8"))
-                return converter(raw)
-    except (OSError, ValueError):
-        pass
-
+    """Fetch and persist one snapshot outside the request hot path."""
     snapshot = fetcher()
     if snapshot:
         try:
@@ -199,7 +218,6 @@ def _load_cached_entries(
 def _load_cached_akshare_entries() -> dict[str, StockEntry]:
     return _load_cached_entries(
         _CACHE_FILE,
-        _fetch_akshare_directory,
         _entries_from_raw,
     )
 
@@ -207,7 +225,6 @@ def _load_cached_akshare_entries() -> dict[str, StockEntry]:
 def _load_cached_hk_akshare_entries() -> dict[str, StockEntry]:
     return _load_cached_entries(
         _HK_CACHE_FILE,
-        _fetch_akshare_hk_directory,
         _entries_from_hk_raw,
     )
 
@@ -215,7 +232,6 @@ def _load_cached_hk_akshare_entries() -> dict[str, StockEntry]:
 def _load_cached_etf_akshare_entries() -> dict[str, StockEntry]:
     return _load_cached_entries(
         _ETF_CACHE_FILE,
-        _fetch_akshare_etf_directory,
         _entries_from_raw,
     )
 
@@ -331,16 +347,80 @@ class StockDirectory:
 
     def __init__(self) -> None:
         self._entries: dict[str, StockEntry] | None = None
+        self._lock = threading.Lock()
+        self._refreshing = False
+        self._last_refresh_attempt = 0.0
+
+    @staticmethod
+    def _cache_specs() -> tuple[tuple[Path, Any, Any], ...]:
+        return (
+            (_CACHE_FILE, _fetch_akshare_directory, _entries_from_raw),
+            (_ETF_CACHE_FILE, _fetch_akshare_etf_directory, _entries_from_raw),
+            (_HK_CACHE_FILE, _fetch_akshare_hk_directory, _entries_from_hk_raw),
+        )
 
     def _entries_map(self) -> dict[str, StockEntry]:
-        if self._entries is None:
-            merged = _build_seed_entries()
-            # AKShare snapshots overlay/extend the offline Mainland seeds.
-            merged.update(_load_cached_akshare_entries())
-            merged.update(_load_cached_etf_akshare_entries())
-            merged.update(_load_cached_hk_akshare_entries())
-            self._entries = merged
-        return self._entries
+        with self._lock:
+            if self._entries is None:
+                merged = _build_seed_entries()
+                # Existing snapshots overlay/extend the offline Mainland seeds.
+                # Reading these files is local and never triggers AKShare requests.
+                merged.update(_load_cached_akshare_entries())
+                merged.update(_load_cached_etf_akshare_entries())
+                merged.update(_load_cached_hk_akshare_entries())
+                self._entries = merged
+            return self._entries
+
+    @property
+    def is_refreshing(self) -> bool:
+        with self._lock:
+            return self._refreshing
+
+    def warm(self) -> None:
+        """Load local entries and refresh stale snapshots without blocking startup."""
+        self._entries_map()
+        self._start_background_refresh()
+
+    def _start_background_refresh(self) -> None:
+        now = time.monotonic()
+        with self._lock:
+            if self._refreshing:
+                return
+            if (
+                self._last_refresh_attempt
+                and now - self._last_refresh_attempt < _REFRESH_RETRY_SECONDS
+            ):
+                return
+            if not any(
+                _cache_is_stale(cache_file)
+                for cache_file, _, _ in self._cache_specs()
+            ):
+                return
+            self._refreshing = True
+            self._last_refresh_attempt = now
+
+        threading.Thread(
+            target=self._refresh_stale_caches,
+            name="stock-directory-refresh",
+            daemon=True,
+        ).start()
+
+    def _refresh_stale_caches(self) -> None:
+        refreshed: dict[str, StockEntry] = {}
+        try:
+            for cache_file, fetcher, converter in self._cache_specs():
+                if _cache_is_stale(cache_file):
+                    refreshed.update(
+                        _refresh_cached_entries(cache_file, fetcher, converter)
+                    )
+            if refreshed:
+                with self._lock:
+                    merged = dict(self._entries or _build_seed_entries())
+                    merged.update(refreshed)
+                    self._entries = merged
+        finally:
+            with self._lock:
+                self._refreshing = False
 
     def search(self, query: str, limit: int = 10) -> list[dict[str, str]]:
         """Return matches ranked by relevance for a code- or name-based query."""

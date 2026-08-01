@@ -128,6 +128,7 @@
     historyReport: null,
     historyActiveSection: '',
     tickerSearchTimer: null,
+    tickerSearchSequence: 0,
     adminPane: 'models',
     adminModels: [],
     adminWhitelist: [],
@@ -1044,12 +1045,21 @@
       const value = input.value.trim();
       state.activeTicker = { code: value, name: '' };
       updateTickerIdentity();
-      if (state.tickerSearchTimer) clearTimeout(state.tickerSearchTimer);
+      if (state.tickerSearchTimer) {
+        clearTimeout(state.tickerSearchTimer);
+        state.tickerSearchTimer = null;
+      }
+      const requestId = ++state.tickerSearchSequence;
       if (!value) {
-        hideTickerSuggestions();
+        hideTickerSuggestions(false);
         return;
       }
-      state.tickerSearchTimer = setTimeout(() => fetchTickerSuggestions(value), 180);
+      renderTickerSearchStatus('loading', '正在搜索，请稍候…');
+      const startedAt = Date.now();
+      state.tickerSearchTimer = setTimeout(
+        () => fetchTickerSuggestions(value, requestId, startedAt),
+        180
+      );
     });
 
     input.addEventListener('keydown', event => {
@@ -1071,13 +1081,61 @@
     });
   }
 
-  async function fetchTickerSuggestions(query) {
+  async function fetchTickerSuggestions(query, requestId, startedAt) {
     try {
-      const data = await apiJson(`/api/stocks/search?q=${encodeURIComponent(query)}&limit=8`);
-      renderTickerSuggestions(data.items || []);
+      const url = '/api/stocks/search?q=' + encodeURIComponent(query) + '&limit=8';
+      const data = await apiJson(url);
+      const input = qs('#ticker');
+      if (
+        requestId !== state.tickerSearchSequence
+        || input?.value.trim() !== query
+      ) return;
+
+      const items = data.items || [];
+      if (items.length) {
+        renderTickerSuggestions(items);
+        return;
+      }
+      if (data.refreshing && Date.now() - startedAt < 15000) {
+        renderTickerSearchStatus('loading', '股票目录正在更新，请稍候…');
+        state.tickerSearchTimer = setTimeout(
+          () => fetchTickerSuggestions(query, requestId, startedAt),
+          850
+        );
+        return;
+      }
+      renderTickerSearchStatus(
+        'empty',
+        data.refreshing ? '股票目录仍在更新，请稍后再试' : '未找到匹配的股票'
+      );
     } catch {
-      hideTickerSuggestions();
+      if (requestId !== state.tickerSearchSequence) return;
+      renderTickerSearchStatus('error', '搜索暂时不可用，请稍后重试');
     }
+  }
+
+  function renderTickerSearchStatus(kind, message) {
+    const input = qs('#ticker');
+    const menu = qs('#ticker-suggest');
+    if (!menu || !input) return;
+    const status = document.createElement('div');
+    status.className = 'combo-status ' + kind;
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    if (kind === 'loading') {
+      const spinner = document.createElement('span');
+      spinner.className = 'combo-spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      status.appendChild(spinner);
+    }
+    const label = document.createElement('span');
+    label.textContent = message;
+    status.appendChild(label);
+    menu.textContent = '';
+    menu.appendChild(status);
+    menu.hidden = false;
+    menu.setAttribute('aria-busy', kind === 'loading' ? 'true' : 'false');
+    input.setAttribute('aria-expanded', 'true');
   }
 
   function renderTickerSuggestions(items) {
@@ -1085,7 +1143,7 @@
     const menu = qs('#ticker-suggest');
     if (!menu || !input) return;
     if (!items.length) {
-      hideTickerSuggestions();
+      renderTickerSearchStatus('empty', '未找到匹配的股票');
       return;
     }
     menu.textContent = '';
@@ -1105,15 +1163,22 @@
       menu.appendChild(option);
     });
     menu.hidden = false;
+    menu.setAttribute('aria-busy', 'false');
     input.setAttribute('aria-expanded', 'true');
   }
 
-  function hideTickerSuggestions() {
+  function hideTickerSuggestions(invalidateRequest = true) {
     const menu = qs('#ticker-suggest');
     const input = qs('#ticker');
+    if (state.tickerSearchTimer) {
+      clearTimeout(state.tickerSearchTimer);
+      state.tickerSearchTimer = null;
+    }
+    if (invalidateRequest) state.tickerSearchSequence += 1;
     if (menu) {
       menu.hidden = true;
       menu.textContent = '';
+      menu.removeAttribute('aria-busy');
     }
     if (input) input.setAttribute('aria-expanded', 'false');
   }

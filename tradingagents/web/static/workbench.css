@@ -800,6 +800,35 @@ textarea { min-height: 68px; resize: vertical; }
 
 .combo-menu[hidden] { display: none; }
 
+.combo-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.combo-status.error { color: var(--danger); }
+
+.combo-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ticker-search-spin 700ms linear infinite;
+}
+
+@keyframes ticker-search-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .combo-spinner { animation-duration: 1400ms; }
+}
+
 .combo-item {
   display: flex;
   align-items: baseline;

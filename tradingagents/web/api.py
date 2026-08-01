@@ -86,6 +86,7 @@ def create_app(
 
     @app.on_event("startup")
     def recover_analysis_tasks():
+        get_stock_directory().warm()
         task_service.start()
 
     @app.on_event("shutdown")
@@ -270,7 +271,11 @@ def create_app(
 
     @app.get("/api/stocks/search")
     def search_stocks(q: str = Query("", min_length=0), limit: int = Query(10, ge=1, le=50)):
-        return {"items": get_stock_directory().search(q, limit)}
+        directory = get_stock_directory()
+        return {
+            "items": directory.search(q, limit),
+            "refreshing": directory.is_refreshing,
+        }
 
     @app.get("/api/reports")
     def list_reports(request: Request, access_email: str | None = Query(None)):

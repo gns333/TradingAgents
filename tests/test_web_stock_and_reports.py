@@ -48,6 +48,67 @@ def test_stock_search_respects_limit(monkeypatch):
     assert len(response.json()["items"]) <= 3
 
 
+def test_stock_search_request_path_never_calls_remote_fetchers(monkeypatch):
+    monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}
+    )
+
+    def fail_remote_fetch():
+        raise AssertionError("search request must not perform remote I/O")
+
+    monkeypatch.setattr(stock_directory, "_fetch_akshare_directory", fail_remote_fetch)
+    monkeypatch.setattr(
+        stock_directory, "_fetch_akshare_etf_directory", fail_remote_fetch
+    )
+    monkeypatch.setattr(
+        stock_directory, "_fetch_akshare_hk_directory", fail_remote_fetch
+    )
+
+    directory = stock_directory.StockDirectory()
+
+    assert directory.search("茅台")[0]["code"] == "600519.SH"
+    assert directory.is_refreshing is False
+
+
+def test_stock_directory_warm_refreshes_stale_snapshots_in_background(monkeypatch):
+    refreshed_entry = stock_directory.StockEntry(
+        code="600000.SH",
+        name="后台刷新样例",
+        bare_code="600000",
+    )
+    refresh_calls = []
+
+    monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
+    monkeypatch.setattr(stock_directory, "_load_cached_hk_akshare_entries", lambda: {})
+    monkeypatch.setattr(
+        stock_directory, "_load_cached_etf_akshare_entries", lambda: {}
+    )
+    monkeypatch.setattr(stock_directory, "_cache_is_stale", lambda _path: True)
+
+    def fake_refresh(cache_file, _fetcher, _converter):
+        refresh_calls.append(cache_file)
+        return {"600000": refreshed_entry} if len(refresh_calls) == 1 else {}
+
+    class ImmediateThread:
+        def __init__(self, *, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    monkeypatch.setattr(stock_directory, "_refresh_cached_entries", fake_refresh)
+    monkeypatch.setattr(stock_directory.threading, "Thread", ImmediateThread)
+
+    directory = stock_directory.StockDirectory()
+    directory.warm()
+
+    assert len(refresh_calls) == 3
+    assert directory.search("后台刷新样例")[0]["code"] == "600000.SH"
+    assert directory.is_refreshing is False
+
+
 def test_stock_search_matches_hong_kong_code_and_name(monkeypatch):
     monkeypatch.setattr(stock_directory, "_load_cached_akshare_entries", lambda: {})
     monkeypatch.setattr(

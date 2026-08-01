@@ -98,6 +98,21 @@ def test_workbench_js_contains_analysis_workspace_contract():
     assert "requestAnimationFrame(focusCurrentAgent)" in js
 
 
+def test_ticker_autocomplete_shows_loading_and_ignores_stale_requests():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert "tickerSearchSequence" in js
+    assert "function renderTickerSearchStatus(kind, message)" in js
+    assert "正在搜索，请稍候…" in js
+    assert "股票目录正在更新，请稍候…" in js
+    assert "requestId !== state.tickerSearchSequence" in js
+    assert "data.refreshing" in js
+    assert ".combo-status" in css
+    assert ".combo-spinner" in css
+    assert "@keyframes ticker-search-spin" in css
+
+
 def test_workbench_js_contains_terminal_redesign_contract():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")

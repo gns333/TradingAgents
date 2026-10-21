@@ -487,6 +487,33 @@ def test_cloudbase_registration_validation_is_visible_and_focuses_first_error():
     assert "const invalidatesChallenge = field === 'email'" in js
 
 
+def test_cloudbase_password_step_collapses_verification_fields_and_keeps_change_email():
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert 'id="cloudbase-register-verification"' in html
+    assert 'id="cloudbase-verified-email-summary" hidden' in html
+    assert 'id="cloudbase-change-email"' in html
+    assert "verification.disabled = true" in js
+    assert "verification.disabled = false" in js
+    assert "verifiedEmail.title = email" in js
+    modal = css.split(".cloudbase-auth-modal {", 1)[1].split("}", 1)[0]
+    assert "overflow: visible" in modal
+    assert "max-height: none" in modal
+
+
+def test_workbench_dialogs_restore_focus_and_isolate_background_navigation():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+
+    assert "function setWorkbenchModalOpen(modal, open)" in js
+    assert "shell.inert = anyOpen" in js
+    assert "modalReturnTargets.get(modal)" in js
+    assert "event.key === 'Tab'" in js
+    assert "panel.setAttribute('role', 'tabpanel')" in js
+    assert "['ArrowLeft', 'ArrowRight', 'Home', 'End']" in js
+
+
 def test_cloudbase_password_login_and_recovery_sdk_flows_exist():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")

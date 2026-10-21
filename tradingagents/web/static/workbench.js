@@ -360,6 +360,27 @@
     reset: ['重置密码', '验证你的邮箱后，设置一个新的登录密码。']
   };
   const cloudBaseCodeTimers = new Map();
+  const modalReturnTargets = new WeakMap();
+
+  function setWorkbenchModalOpen(modal, open) {
+    if (!modal) return;
+    if (open && modal.hidden) modalReturnTargets.set(modal, document.activeElement);
+    modal.hidden = !open;
+    const anyOpen = [...document.querySelectorAll('.modal-backdrop')].some(item => !item.hidden);
+    const shell = qs('#app-shell');
+    if (shell) shell.inert = anyOpen;
+    document.body.classList.toggle('modal-open', anyOpen);
+    if (open) {
+      requestAnimationFrame(() => {
+        if (modal.hidden) return;
+        const inputs = [...modal.querySelectorAll('input:not(:disabled)')].filter(item => item.getClientRects().length);
+        (inputs[0] || modal.querySelector('button:not(:disabled)'))?.focus({ preventScroll: true });
+      });
+    } else if (!anyOpen) {
+      const target = modalReturnTargets.get(modal);
+      if (target?.isConnected && target.getClientRects().length) target.focus({ preventScroll: true });
+    }
+  }
 
   function setCloudBaseAuthMode(mode, clearStatus = true) {
     const nextMode = CLOUDBASE_AUTH_COPY[mode] ? mode : 'login';
@@ -381,23 +402,30 @@
       resetEmail.value = qs('#cloudbase-login-email')?.value || '';
     }
     if (clearStatus) setStatus('#cloudbase-auth-status', '', undefined);
-    setTimeout(() => qs(`[data-auth-form="${nextMode}"] input`)?.focus(), 0);
+    setTimeout(() => focusCloudBaseForm(nextMode), 0);
+  }
+
+  function focusCloudBaseForm(mode) {
+    const form = qs(`[data-auth-form="${mode}"]`);
+    const input = [...(form?.querySelectorAll('input') || [])]
+      .find(item => !item.disabled && item.getClientRects().length);
+    input?.focus({ preventScroll: true });
   }
 
   function openCloudBaseAuthModal(message = '', ok = undefined) {
     const modal = qs('#cloudbase-auth-modal');
-    if (modal) modal.hidden = false;
+    setWorkbenchModalOpen(modal, true);
     document.body.classList.add('auth-open');
     setStatus('#cloudbase-auth-status', message, ok);
     setTimeout(() => {
       const mode = qs('#cloudbase-auth-panel')?.dataset.mode || 'login';
-      qs(`[data-auth-form="${mode}"] input`)?.focus();
+      focusCloudBaseForm(mode);
     }, 0);
   }
 
   function closeCloudBaseAuthModal() {
     const modal = qs('#cloudbase-auth-modal');
-    if (modal) modal.hidden = true;
+    setWorkbenchModalOpen(modal, false);
     document.body.classList.remove('auth-open');
   }
 
@@ -570,6 +598,14 @@
 
   function resetCloudBaseRegistration() {
     state.cloudbaseVerification = null;
+    const verification = qs('#cloudbase-register-verification');
+    if (verification) {
+      verification.hidden = false;
+      verification.disabled = false;
+    }
+    const summary = qs('#cloudbase-verified-email-summary');
+    if (summary) summary.hidden = true;
+    setText('#cloudbase-verified-email', '');
     const credentials = qs('#cloudbase-register-credentials');
     if (credentials) {
       credentials.hidden = true;
@@ -586,7 +622,17 @@
     }
     ['password', 'confirm'].forEach(field => {
       const input = qs(`#cloudbase-register-${field}`);
-      if (input) input.value = '';
+      if (input) {
+        input.value = '';
+        input.type = 'password';
+        input.setCustomValidity('');
+        clearCloudBaseFieldError(input);
+      }
+    });
+    document.querySelectorAll('#cloudbase-register-credentials [data-password-toggle]').forEach(button => {
+      button.setAttribute('aria-pressed', 'false');
+      button.setAttribute('aria-label', '显示密码');
+      button.title = '显示密码';
     });
     setText('#cloudbase-register-step', '第 1 步：验证邮箱');
   }
@@ -629,6 +675,16 @@
     }
     pending.verificationToken = verified.verification_token;
     pending.code = code;
+    const verification = qs('#cloudbase-register-verification');
+    if (verification) {
+      verification.hidden = true;
+      verification.disabled = true;
+    }
+    const summary = qs('#cloudbase-verified-email-summary');
+    if (summary) summary.hidden = false;
+    setText('#cloudbase-verified-email', email);
+    const verifiedEmail = qs('#cloudbase-verified-email');
+    if (verifiedEmail) verifiedEmail.title = email;
     const credentials = qs('#cloudbase-register-credentials');
     if (credentials) {
       credentials.hidden = false;
@@ -656,7 +712,9 @@
     setStatus('#cloudbase-auth-status', '正在验证邮箱…', undefined);
     try {
       await verifyCloudBaseRegistrationCode(email, codeInput.value.trim());
-      setStatus('#cloudbase-auth-status', '邮箱已验证，请设置登录密码', true);
+      // The verified-email summary already communicates success without a
+      // second status box taking vertical space away from the password form.
+      setStatus('#cloudbase-auth-status', '', undefined);
     } catch (err) {
       setStatus('#cloudbase-auth-status', cloudBaseErrorMessage(err, '邮箱验证失败'), false);
     } finally {
@@ -930,6 +988,8 @@
     });
     document.querySelectorAll('.nav-item').forEach(button => {
       button.classList.toggle('active', button.dataset.view === target);
+      if (button.dataset.view === target) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
     });
     const active = qs(`#view-${target}`);
     setText('#view-title', active?.dataset.title || '工作台');
@@ -944,7 +1004,7 @@
 
   function openAdminModal() {
     const modal = qs('#admin-modal');
-    if (modal) modal.hidden = false;
+    setWorkbenchModalOpen(modal, true);
     renderAdminAuth();
   }
 
@@ -962,21 +1022,21 @@
 
   function closeAdminModal() {
     const modal = qs('#admin-modal');
-    if (modal) modal.hidden = true;
+    setWorkbenchModalOpen(modal, false);
   }
 
   function openIdentityModal() {
     const modal = qs('#identity-modal');
     const input = qs('#identity-email');
     if (input) input.value = state.identityEmail;
-    if (modal) modal.hidden = false;
+    setWorkbenchModalOpen(modal, true);
     updateIdentitySummary();
     setTimeout(() => input?.focus(), 0);
   }
 
   function closeIdentityModal() {
     const modal = qs('#identity-modal');
-    if (modal) modal.hidden = true;
+    setWorkbenchModalOpen(modal, false);
   }
 
   async function saveIdentity() {
@@ -1097,7 +1157,7 @@
               </div>
               <button class="secondary-button compact-button" type="button" data-open-reports>历史报告</button>
             </div>
-            <div class="report-viewer" id="report-preview"><div class="empty-state">等待报告生成</div></div>
+            <div class="report-viewer" id="report-preview"><div class="empty-state"><strong class="empty-state-title">报告将在这里呈现</strong><p>选择股票并开始分析，即可查看各智能体的研究结果。</p></div></div>
           </section>
 
           <div class="analysis-side">
@@ -1888,6 +1948,8 @@
     next.textContent = '›';
     const panel = document.createElement('article');
     panel.className = 'report-article markdown';
+    panel.id = `${container.id}-content`;
+    panel.setAttribute('role', 'tabpanel');
 
     const updateTabScrollControls = () => {
       const remaining = tabs.scrollWidth - tabs.clientWidth - tabs.scrollLeft;
@@ -1902,6 +1964,7 @@
     tabs.addEventListener('scroll', updateTabScrollControls, { passive: true });
 
     const paint = section => {
+      panel.setAttribute('aria-labelledby', `${container.id}-${section}-tab`);
       tabs.querySelectorAll('.report-tab').forEach(tab => {
         const on = tab.dataset.section === section;
         tab.classList.toggle('active', on);
@@ -1928,12 +1991,24 @@
       tab.type = 'button';
       tab.className = `report-tab ${section === active ? 'active' : ''}`.trim();
       tab.dataset.section = section;
+      tab.id = `${container.id}-${section}-tab`;
+      tab.setAttribute('aria-controls', panel.id);
       tab.setAttribute('role', 'tab');
       tab.setAttribute('aria-selected', section === active ? 'true' : 'false');
       tab.tabIndex = section === active ? 0 : -1;
       tab.textContent = reportTitle(section);
       tab.addEventListener('click', () => paint(section));
       tabs.appendChild(tab);
+    });
+    tabs.addEventListener('keydown', event => {
+      const buttons = [...tabs.querySelectorAll('.report-tab')];
+      const current = buttons.indexOf(document.activeElement);
+      if (current < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+      paint(buttons[index].dataset.section);
+      buttons[index].focus({ preventScroll: true });
     });
 
     tabRail.appendChild(previous);
@@ -1955,7 +2030,7 @@
     const finalDecision = state.reports.final_trade_decision;
     if (identity && finalDecision) identity.insertAdjacentHTML('beforeend', decisionBadgeHtml(finalDecision));
     if (!Object.keys(state.reports).length) {
-      root.innerHTML = '<div class="empty-state">等待报告生成</div>';
+      root.innerHTML = '<div class="empty-state"><strong class="empty-state-title">报告将在这里呈现</strong><p>分析进行中时，已完成的研究报告会逐步显示。</p></div>';
       return;
     }
     buildReportTabs(root, state.reports, state.currentReportSection, section => {
@@ -2027,7 +2102,7 @@
               <span class="report-meta" id="history-detail-meta">从左侧选择一份历史报告</span>
             </div>
           </div>
-          <div class="report-viewer" id="history-detail"><div class="empty-state">选择左侧报告后查看完整内容</div></div>
+          <div class="report-viewer" id="history-detail"><div class="empty-state"><strong class="empty-state-title">选择一份研究报告</strong><p>可按股票名称、代码或买卖决策筛选历史记录。</p></div></div>
         </section>
       </div>
     `;
@@ -2118,6 +2193,7 @@
         + '<span class="ho-owner"></span>';
       open.querySelector('.ho-code').textContent = item.ticker || '未知代码';
       open.querySelector('.ho-name').textContent = item.stock_name ? ` · ${item.stock_name}` : '';
+      open.querySelector('strong').title = reportInstrumentLabel(item);
       const badge = decisionBadgeHtml(item.decision);
       open.querySelector('.ho-top').insertAdjacentHTML('beforeend', badge || '<span class="tag">已归档</span>');
       const owner = isAdminSession()
@@ -2128,6 +2204,7 @@
       open.querySelector('.ho-created').textContent = `${formatEventTime(item.created_at) || '--:--'} 归档`;
       const ownerNode = open.querySelector('.ho-owner');
       ownerNode.textContent = owner;
+      ownerNode.title = owner;
       ownerNode.hidden = !owner;
       open.addEventListener('click', () => openHistoryReport(item.id));
 
@@ -2859,6 +2936,12 @@
     });
     qs('#cloudbase-send-code')?.addEventListener('click', () => submitCloudBaseVerification('register'));
     qs('#cloudbase-verify-email')?.addEventListener('click', submitCloudBaseEmailVerification);
+    qs('#cloudbase-change-email')?.addEventListener('click', () => {
+      if (state.cloudbaseRegistrationBusy) return;
+      resetCloudBaseRegistration();
+      setStatus('#cloudbase-auth-status', '请输入邮箱并重新验证', undefined);
+      qs('#cloudbase-register-email')?.focus();
+    });
     qs('#cloudbase-send-reset-code')?.addEventListener('click', () => submitCloudBaseVerification('reset'));
     qs('#cloudbase-login-panel')?.addEventListener('submit', event => {
       event.preventDefault();
@@ -2873,12 +2956,15 @@
       submitCloudBasePasswordReset();
     });
     document.querySelectorAll('[data-password-toggle]').forEach(button => {
+      button.setAttribute('aria-controls', button.dataset.passwordToggle);
+      button.setAttribute('aria-pressed', 'false');
       button.addEventListener('click', () => {
         const input = qs(`#${button.dataset.passwordToggle}`);
         if (!input) return;
         const reveal = input.type === 'password';
         input.type = reveal ? 'text' : 'password';
         button.setAttribute('aria-label', reveal ? '隐藏密码' : '显示密码');
+        button.setAttribute('aria-pressed', String(reveal));
         button.title = reveal ? '隐藏密码' : '显示密码';
       });
     });
@@ -2911,6 +2997,19 @@
       });
     });
     document.addEventListener('keydown', event => {
+      if (event.key === 'Tab') {
+        const modal = [...document.querySelectorAll('.modal-backdrop')].reverse().find(item => !item.hidden);
+        if (modal) {
+          const focusable = [...modal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+            .filter(item => !item.disabled && item.tabIndex >= 0 && item.getClientRects().length);
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (first && (!modal.contains(document.activeElement) || (event.shiftKey ? document.activeElement === first : document.activeElement === last))) {
+            event.preventDefault();
+            (event.shiftKey ? last : first).focus();
+          }
+        }
+      }
       if (event.key !== 'Escape') return;
       if (!qs('#identity-modal')?.hidden) closeIdentityModal();
       if (!qs('#admin-modal')?.hidden) closeAdminModal();

@@ -88,7 +88,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-body.auth-open { overflow: hidden; }
+body.auth-open, body.modal-open { overflow: hidden; }
 
 /* 数字等宽：价格、涨跌、指标、时间、计数 */
 .mono,
@@ -119,7 +119,7 @@ button {
   transition: background .18s ease, border-color .18s ease, opacity .18s ease, transform .12s ease;
 }
 
-button:hover { background: var(--accent-strong); }
+button:where(:not(:disabled)):hover { background: var(--accent-strong); }
 button:active { transform: translateY(1px); }
 
 button:disabled {
@@ -141,8 +141,8 @@ button:disabled {
   font-weight: 550;
 }
 
-.secondary-button:hover,
-.icon-button:hover {
+.secondary-button:where(:not(:disabled)):hover,
+.icon-button:where(:not(:disabled)):hover {
   background: var(--surface);
   border-color: var(--accent);
   color: var(--accent);
@@ -309,7 +309,9 @@ textarea:focus {
   outline: none;
 }
 
-input::placeholder { color: var(--faint); }
+input::placeholder, textarea::placeholder { color: color-mix(in srgb, var(--muted) 78%, var(--faint)); opacity: 1; }
+input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .65; }
+input[readonly] { color: var(--muted); }
 
 textarea { min-height: 68px; resize: vertical; }
 
@@ -487,7 +489,9 @@ textarea { min-height: 68px; resize: vertical; }
   padding: 11px 15px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
+  flex-wrap: wrap;
 }
+.panel-header > * { min-width: 0; }
 
 .panel-header h3 { font-size: 14px; font-weight: 650; }
 .panel-body { padding: 15px; }
@@ -547,10 +551,11 @@ textarea { min-height: 68px; resize: vertical; }
 }
 
 .status-box.ok, .notice.success { background: var(--down-soft); border-color: var(--down); color: var(--down); }
-.status-box.err, .form-status { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+.status-box.err, .form-status.err { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 .form-status.ok { background: var(--down-soft); border-color: var(--down); color: var(--down); }
 .form-status { min-height: 0; margin-top: 6px; }
 .form-status:empty { display: none; }
+.status-box:empty, .notice:empty { display: none; }
 .notice.warning { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
 
 /* ---------------------------------------------------- Agent 团队流水线 */
@@ -720,11 +725,20 @@ textarea { min-height: 68px; resize: vertical; }
 }
 
 .empty-state {
-  padding: 26px 18px;
-  color: var(--faint);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  min-height: 150px;
+  padding: 32px 20px;
+  color: var(--muted);
   text-align: center;
   font-size: 13px;
+  line-height: 1.65;
 }
+.empty-state-title { color: var(--text); font-size: 15px; font-weight: 600; }
+.empty-state p { max-width: 38ch; margin: 0; color: var(--muted); font-size: 12px; }
+.combo-menu .empty-state, .table-wrap .empty-state { min-height: 100px; }
 
 /* ---------------------------------------------------- 数据表 */
 .table-wrap { width: 100%; overflow: auto; padding: 0 0 12px; }
@@ -1243,11 +1257,21 @@ textarea { min-height: 68px; resize: vertical; }
 .modal-header h2 { margin: 0; font-size: 16px; font-weight: 650; }
 .modal-body { display: grid; gap: 10px; padding: 16px; }
 /* ---------------------------------------------------- CloudBase 认证 */
-.cloudbase-auth-backdrop { overflow-y: auto; overscroll-behavior: contain; }
-.cloudbase-auth-modal {
-  width: min(420px, 100%);
-  max-height: min(760px, calc(100dvh - 36px));
+.cloudbase-auth-backdrop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 18px;
+  scroll-padding-block: 24px;
+}
+.cloudbase-auth-modal {
+  width: min(460px, 100%);
+  max-height: none;
+  margin-block: auto;
+  flex: none;
+  overflow: visible;
 }
 .cloudbase-auth-modal .modal-header { min-height: 58px; }
 .cloudbase-auth-modal .modal-header .icon-button { width: 44px; min-height: 44px; }
@@ -1265,11 +1289,11 @@ textarea { min-height: 68px; resize: vertical; }
 }
 .cloudbase-auth-brand strong { display: block; font-size: 14px; line-height: 1.2; }
 .cloudbase-auth-brand small { display: block; margin-top: 2px; color: var(--faint); font-size: 10px; line-height: 1.2; }
-.cloudbase-auth-content { display: grid; gap: 18px; padding: 22px 24px 24px; }
+.cloudbase-auth-content { display: grid; gap: 16px; padding: 22px 26px 24px; min-width: 0; }
 .cloudbase-auth-heading { display: grid; gap: 5px; }
 .cloudbase-auth-heading-row { display: flex; align-items: center; gap: 8px; }
 .cloudbase-auth-heading h2 { margin: 0; font-size: 22px; line-height: 1.25; }
-.cloudbase-auth-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+.cloudbase-auth-heading p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .cloudbase-auth-back {
   display: none;
   width: 44px;
@@ -1304,6 +1328,22 @@ textarea { min-height: 68px; resize: vertical; }
 .cloudbase-auth-panel[hidden] { display: none; }
 .cloudbase-auth-panel fieldset { display: grid; gap: 14px; border: 0; padding: 0; margin: 0; min-width: 0; }
 .cloudbase-auth-panel fieldset[hidden], .cloudbase-auth-submit[hidden] { display: none; }
+.verified-email-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+.verified-email-summary[hidden] { display: none; }
+.verified-email-summary > div { display: grid; gap: 3px; min-width: 0; }
+.verified-email-label { color: var(--accent); font-size: 11px; font-weight: 600; }
+.verified-email-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; }
+.verified-email-summary button { flex: none; min-height: 32px; padding-inline: 0; }
 .cloudbase-auth-field { display: grid; gap: 6px; min-width: 0; }
 .cloudbase-auth-field label { margin: 0; color: var(--text); }
 .cloudbase-auth-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1336,10 +1376,12 @@ textarea { min-height: 68px; resize: vertical; }
   color: var(--muted);
 }
 .cloudbase-password-toggle:hover { transform: translateY(-50%); background: var(--surface-2); color: var(--text); }
+.cloudbase-password-toggle[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 .cloudbase-password-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .cloudbase-auth-code-row { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 8px; }
 .cloudbase-auth-code-button { min-height: 48px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
 .cloudbase-auth-helper { margin: 0; color: var(--faint); font-size: 11px; }
+#cloudbase-register-step { color: var(--muted); font-size: 12px; font-weight: 550; }
 
 .cloudbase-field-error {
   margin: 0;
@@ -1356,6 +1398,8 @@ textarea { min-height: 68px; resize: vertical; }
 .cloudbase-auth-switch { margin: -4px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
 .cloudbase-auth-switch button { vertical-align: baseline; }
 .cloudbase-auth-content > .form-status { margin: -8px 0 0; }
+.cloudbase-auth-content > .form-status:empty { display: none; }
+.cloudbase-auth-content > .form-status { overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------- 主题切换 */
 .theme-toggle { position: relative; }
@@ -1497,7 +1541,7 @@ textarea { min-height: 68px; resize: vertical; }
 .analysis-launchbar .launch-label {
   display: block;
   margin: 0 0 5px;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.2;
@@ -1636,7 +1680,7 @@ textarea { min-height: 68px; resize: vertical; }
 .flow-node.done .flow-marker { border-color: var(--down); background: var(--down); color: #fff; }
 .flow-node.active .flow-marker { border-color: var(--accent); background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 6px var(--accent-soft); }
 .flow-role { margin-top: 3px; font-size: 12px; font-weight: 650; white-space: nowrap; }
-.flow-kind, .flow-status { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.flow-kind, .flow-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .flow-status { color: var(--faint); font-weight: 600; }
 .flow-node.done .flow-status { color: var(--down); }
 .flow-node.active .flow-status { color: var(--accent); }
@@ -1662,14 +1706,14 @@ textarea { min-height: 68px; resize: vertical; }
   background: var(--surface-2);
 }
 .report-identity { min-width: 0; display: grid; gap: 3px; }
-.report-identity-main { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.report-identity-main { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
 .report-code { font: 700 14px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
 .report-name { font-size: 14px; font-weight: 650; }
-.report-meta { overflow: hidden; color: var(--faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.report-meta { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; line-height: 1.5; }
 .report-toolbar .decision-badge { padding: 2px 8px; font-size: 11px; }
 .report-tab-rail {
   position: sticky;
-  top: 56px;
+  top: 0;
   z-index: 3;
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   backdrop-filter: blur(8px);
@@ -1683,8 +1727,9 @@ textarea { min-height: 68px; resize: vertical; }
 .history-filter { padding: 10px 12px; }
 .history-filter input { min-height: 36px; }
 .history-filter .filter-chips {
-  width: max-content;
+  width: 100%;
   max-width: 100%;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--line-soft);
@@ -1703,7 +1748,7 @@ textarea { min-height: 68px; resize: vertical; }
 .history-open strong { min-width: 0; flex: 1; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .history-open .ho-code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .history-open .decision-badge, .history-open .tag { flex: none; max-width: 64px; margin-left: auto; padding: 2px 7px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.history-open .ho-meta { display: flex; align-items: center; width: 100%; min-width: 0; gap: 7px; overflow: hidden; color: var(--faint); font-size: 11px; }
+.history-open .ho-meta { display: flex; flex-wrap: wrap; align-items: center; width: 100%; min-width: 0; gap: 4px 7px; color: var(--muted); font-size: 11px; }
 .history-open .ho-meta span { flex: none; white-space: nowrap; }
 .history-open .ho-meta span + span:not([hidden])::before { content: "·"; margin-right: 7px; color: var(--line); }
 .report-date-badge {
@@ -1778,7 +1823,7 @@ textarea { min-height: 68px; resize: vertical; }
 .admin-field.full { grid-column: 1 / -1; }
 .admin-field label { margin: 0 0 6px; }
 .admin-field .helper-text { margin: 6px 0 0; }
-.admin-editor-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }
+.admin-editor-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 .admin-editor-actions button { width: auto; }
 .admin-toggle-row { display: flex; align-items: center; }
 .toggle-option { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--text); cursor: pointer; }
@@ -1805,12 +1850,18 @@ textarea { min-height: 68px; resize: vertical; }
   .analysis-launchbar { grid-template-columns: minmax(180px, .9fr) 150px minmax(360px, 1.7fr) 108px; }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1280px) {
+  .analysis-grid { grid-template-columns: minmax(0, 1fr); }
+  .analysis-side { grid-column: auto; }
+  .timeline-panel { position: static; }
   .analysis-launchbar { grid-template-columns: minmax(0, 1fr) 145px 108px; }
   .analysis-launchbar .launch-field:first-child { grid-column: 1; }
   .analysis-launchbar .launch-field:nth-child(2) { grid-column: 2; }
   .launch-modules { grid-column: 1 / 3; }
   .launch-action { grid-column: 3; }
+}
+
+@media (max-width: 1024px) {
   .history-list { max-height: 420px; }
   .report-detail-panel { scroll-margin-top: 10px; }
   .history-mobile-back {
@@ -1837,6 +1888,8 @@ textarea { min-height: 68px; resize: vertical; }
 
 @media (max-width: 860px) {
   .sidebar { position: static; height: auto; overflow: visible; }
+  .nav-list { flex: 1 0 100%; grid-auto-flow: column; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nav-item { min-height: 44px; padding: 8px; text-align: center; }
   .identity-card { display: grid; width: 100%; margin-top: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
   .identity-head { min-width: 0; grid-column: 2; grid-row: 1; }
   .identity-head h2 { display: none; }
@@ -1881,8 +1934,8 @@ textarea { min-height: 68px; resize: vertical; }
   .admin-field.full, .admin-editor-actions { grid-column: 1; }
   .admin-editor-actions { flex-wrap: wrap; }
   .topbar-context { max-width: 55vw; overflow: hidden; text-overflow: ellipsis; }
-  .history-item { grid-template-columns: minmax(0, 1fr) 36px; }
-  .history-delete { width: 36px; padding: 0; font-size: 0; }
+  .history-item { grid-template-columns: minmax(0, 1fr) 44px; }
+  .history-delete { width: 44px; padding: 0; font-size: 0; }
   .history-delete::before { content: "×"; font-size: 16px; line-height: 1; }
   .report-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .history-mobile-back { order: -1; }

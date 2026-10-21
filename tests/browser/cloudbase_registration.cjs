@@ -13,8 +13,8 @@ before(async () => {
 });
 after(async () => { await browser?.close(); });
 
-async function fixture(t) {
-  const page = await browser.newPage();
+async function fixture(t, options = {}) {
+  const page = await browser.newPage({ viewport: options.viewport || { width: 1280, height: 720 } });
   page.setDefaultTimeout(7000);
   t.after(() => page.close());
   const errors = [];
@@ -22,6 +22,9 @@ async function fixture(t) {
   t.after(() => assert.deepEqual(errors, []));
   const registrations = [];
   let syncFailures = 0;
+  // Use the application's system-font fallback deterministically. Remote font
+  // availability must not decide whether this isolated UI regression runs.
+  await page.route(/^https:\/\/fonts\.(googleapis|gstatic)\.com\//, route => route.abort());
   await page.route('http://registration.test/**', async route => {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/runtime-config') {
@@ -31,6 +34,24 @@ async function fixture(t) {
       registrations.push(route.request().headers());
       if (syncFailures-- > 0) return route.fulfill({ status: 503, json: { detail: 'try again' } });
       return route.fulfill({ json: { approval_status: 'pending' } });
+    }
+    if (options.rich && url.pathname === '/api/reports') {
+      return route.fulfill({ json: { items: [{
+        id: 'sample', ticker: '600519.SH', stock_name: '贵州茅台', decision: 'buy',
+        trade_date: '2026-10-21', created_at: '2026-10-21T07:00:00Z',
+        owner_email: 'a-very-long-research-account@example.com'
+      }] } });
+    }
+    if (options.rich && url.pathname === '/api/reports/sample') {
+      return route.fulfill({ json: { item: {
+        id: 'sample', ticker: '600519.SH', stock_name: '贵州茅台股份有限公司', decision: 'buy',
+        trade_date: '2026-10-21', created_at: '2026-10-21T07:00:00Z', analysts: ['market', 'fundamentals'],
+        owner_email: 'a-very-long-research-account@example.com',
+        sections: {
+          market_report: '## 市场分析\n\n报告正文与表格。\n\n| 指标 | 2025 年 | 2026 年 | 变化 |\n| --- | --- | --- | --- |\n| 现金流 | 1.2 亿元 | 1.3 亿元 | +8.3% |',
+          fundamentals_report: '## 基本面分析\n\n测试报告内容。'
+        }
+      } } });
     }
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: { items: [] } });
     const file = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/assets\//, '');
@@ -67,7 +88,7 @@ async function fixture(t) {
       signOut: async () => { window.sdkSignedIn = false; return { error: null }; }
     }) }) };
   });
-  await page.goto('http://registration.test/');
+  await page.goto('http://registration.test/', { waitUntil: 'domcontentloaded' });
   try {
     await page.locator('#cloudbase-auth-modal').waitFor({ state: 'visible' });
   } catch (error) {
@@ -127,6 +148,7 @@ test('changing email invalidates verification, changing passwords does not', asy
   await verifyEmail(page);
   await page.locator('#cloudbase-register-password').fill('Changed123');
   assert.equal(await page.evaluate(() => Boolean(window.TradingAgentsWorkbench.state.cloudbaseVerification.verificationToken)), true);
+  await page.locator('#cloudbase-change-email').click();
   await page.locator('#cloudbase-register-email').fill('other@example.com');
   assert.equal(await page.locator('#cloudbase-register-password').isVisible(), false);
   assert.equal(await page.locator('#cloudbase-register-code').inputValue(), '');
@@ -204,3 +226,121 @@ test('double submit creates at most one account', async t => {
   });
   assert.equal(await page.evaluate(() => window.authCalls.filter(call => call[0] === 'signup').length), 1);
 });
+
+test('UI registration password step fits a regular laptop without an inner scrollbar', async t => {
+  const { page } = await fixture(t, { viewport: { width: 1366, height: 768 } });
+  await verifyEmail(page);
+  const metrics = await page.locator('#cloudbase-auth-panel').evaluate(node => ({
+    scrollHeight: node.scrollHeight, clientHeight: node.clientHeight,
+    top: node.getBoundingClientRect().top, bottom: node.getBoundingClientRect().bottom
+  }));
+  if (process.env.UI_SCREENSHOTS_DIR) {
+    await page.screenshot({ path: path.join(process.env.UI_SCREENSHOTS_DIR, 'registration-desktop.png'), animations: 'disabled' });
+  }
+  t.diagnostic(JSON.stringify(metrics));
+  assert.ok(metrics.scrollHeight <= metrics.clientHeight + 1, 'password step should not scroll inside the dialog');
+  assert.ok(metrics.top >= 0 && metrics.bottom <= 768, 'dialog must fit the viewport');
+});
+
+test('UI dialog traps keyboard focus and restores the opener on close', async t => {
+  const { page } = await fixture(t);
+  await verifyEmail(page);
+  await page.locator('#cloudbase-register-confirm').focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.querySelector('#cloudbase-auth-modal').contains(document.activeElement)), true);
+  await page.locator('#close-cloudbase-auth-modal').focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.querySelector('#cloudbase-auth-modal').contains(document.activeElement)), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#app-shell').evaluate(node => node.inert), false);
+  await page.locator('#open-identity-modal').click();
+  await page.locator('#close-cloudbase-auth-modal').click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'open-identity-modal');
+});
+
+for (const viewport of [
+  { width: 1440, height: 900 }, { width: 1280, height: 720 },
+  { width: 1100, height: 768 }, { width: 768, height: 1024 },
+  { width: 390, height: 844 }, { width: 320, height: 568 }
+]) {
+  test(`UI surfaces fit ${viewport.width}x${viewport.height}`, async t => {
+    const { page } = await fixture(t, { viewport, rich: true });
+    await verifyEmail(page);
+    assert.equal(await page.locator('#cloudbase-register-verification').isVisible(), false);
+    assert.equal(await page.locator('#cloudbase-verified-email').textContent(), 'new@example.com');
+    const modal = await page.locator('#cloudbase-auth-panel').evaluate(node => ({
+      scroll: node.scrollHeight, height: node.clientHeight
+    }));
+    assert.ok(modal.scroll <= modal.height + 1, 'dialog itself must never be a second scroll container');
+    await page.locator('#cloudbase-register-confirm').fill('Example123');
+    assert.equal(await page.locator('#cloudbase-sign-up').isVisible(), true);
+    await page.locator('#close-cloudbase-auth-modal').click();
+    await page.evaluate(() => {
+      const app = window.TradingAgentsWorkbench;
+      app.state.currentUser = { uid: 'test', email: 'admin@example.com', is_admin: true };
+      document.querySelector('[data-view="admin"]').hidden = false;
+    });
+    const assertNoPageOverflow = async view => {
+      const layout = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth }));
+      assert.ok(layout.scroll <= layout.width + 1, `${view} overflows: ${JSON.stringify(layout)}`);
+      if (process.env.UI_SCREENSHOTS_DIR) {
+        await page.screenshot({ path: path.join(process.env.UI_SCREENSHOTS_DIR, `${view}-${viewport.width}.png`), fullPage: true, animations: 'disabled' });
+      }
+    };
+    await assertNoPageOverflow('analysis');
+    if (viewport.width <= 1280) {
+      const widths = await page.evaluate(() => ({
+        report: document.querySelector('.report-current-panel').getBoundingClientRect().width,
+        grid: document.querySelector('.analysis-grid').getBoundingClientRect().width
+      }));
+      assert.ok(widths.report >= widths.grid - 2, 'report should fill the grid when the timeline moves below it');
+    }
+    await page.locator('[data-view="reports"]').click();
+    await page.locator('.history-open').waitFor();
+    await assertNoPageOverflow('history');
+    const badgeFits = await page.locator('.history-item').evaluate(row => {
+      const badge = row.querySelector('.decision-badge').getBoundingClientRect();
+      const bounds = row.getBoundingClientRect();
+      return badge.right <= bounds.right && badge.left >= bounds.left;
+    });
+    assert.equal(badgeFits, true);
+    await page.locator('.history-open').click();
+    await page.locator('#history-detail .report-tab').first().waitFor();
+    await assertNoPageOverflow('report');
+    await page.locator('#history-detail .report-tab').first().focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#history-detail .report-tab[aria-selected="true"]').count(), 1);
+    assert.match(await page.locator('#history-detail .report-tab[aria-selected="true"]').textContent(), /基本面/);
+    await page.locator('[data-view="admin"]').click();
+    await page.locator('#save-model-config').waitFor();
+    const navContrast = await page.locator('[data-view="admin"]').evaluate(button => {
+      const style = getComputedStyle(button);
+      const parse = color => color.match(/[\d.]+/g).map(Number);
+      const foreground = parse(style.color);
+      const background = parse(style.backgroundColor);
+      const surface = parse(getComputedStyle(button.closest('.sidebar')).backgroundColor);
+      const alpha = background[3] ?? 1;
+      const blended = background.slice(0, 3).map((value, index) => value * alpha + surface[index] * (1 - alpha));
+      const luminance = color => color.slice(0, 3).map(value => {
+        const channel = value / 255;
+        return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+      }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+      const a = luminance(foreground);
+      const b = luminance(blended);
+      return (Math.max(a, b) + .05) / (Math.min(a, b) + .05) >= 3;
+    });
+    assert.equal(navContrast, true, 'navigation hover must not override its selected-state contrast');
+    await assertNoPageOverflow('admin');
+    const actionFits = await page.locator('.admin-pane.active .admin-editor-actions').evaluate(node => {
+      const bounds = node.getBoundingClientRect();
+      return [...node.querySelectorAll('button')].filter(button => button.getClientRects().length)
+        .every(button => button.getBoundingClientRect().right <= bounds.right + 1);
+    });
+    assert.equal(actionFits, true, 'admin actions should wrap inside their panel');
+    await page.locator('#theme-toggle').click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+    await assertNoPageOverflow('admin-light');
+  });
+}

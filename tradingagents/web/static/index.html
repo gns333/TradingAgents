@@ -156,6 +156,7 @@
 
         <form class="cloudbase-auth-panel" id="cloudbase-register-panel" data-auth-form="register" hidden>
           <p class="cloudbase-auth-helper" id="cloudbase-register-step" aria-live="polite">第 1 步：验证邮箱</p>
+          <fieldset id="cloudbase-register-verification">
           <div class="cloudbase-auth-field">
             <label for="cloudbase-register-email">邮箱</label>
             <input id="cloudbase-register-email" type="email" autocomplete="email" placeholder="name@example.com" aria-describedby="cloudbase-register-email-error" required>
@@ -169,6 +170,11 @@
             </div>
           </div>
           <button class="cloudbase-auth-submit" type="button" id="cloudbase-verify-email">验证邮箱并继续</button>
+          </fieldset>
+          <div class="verified-email-summary" id="cloudbase-verified-email-summary" hidden>
+            <div><span class="verified-email-label">邮箱已验证</span><strong id="cloudbase-verified-email"></strong></div>
+            <button class="cloudbase-auth-text-button" type="button" id="cloudbase-change-email">更换邮箱</button>
+          </div>
           <fieldset id="cloudbase-register-credentials" hidden disabled>
           <div class="cloudbase-auth-field">
             <label for="cloudbase-register-password">设置密码</label>

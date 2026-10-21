@@ -6,7 +6,7 @@ import base64
 import binascii
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -22,6 +22,8 @@ class WebRuntimeConfig:
     cloudbase_env_id: str = ""
     cloudbase_region: str = "ap-shanghai"
     master_key: bytes | None = None
+    database_backend: str = "mysql"
+    cloudbase_api_key: str = field(default="", repr=False)
 
 
 def _required(env: Mapping[str, str], name: str, missing: list[str]) -> str:
@@ -49,7 +51,17 @@ def load_web_runtime_config(
         )
 
     missing: list[str] = []
-    database_url = _required(env, "TRADINGAGENTS_DATABASE_URL", missing)
+    backend = str(env.get("TRADINGAGENTS_DATABASE_BACKEND") or "mysql").strip().lower()
+    if backend not in {"mysql", "document"}:
+        raise RuntimeConfigurationError("database backend must be mysql or document")
+    database_url = (
+        _required(env, "TRADINGAGENTS_DATABASE_URL", missing)
+        if backend == "mysql" else ""
+    )
+    api_key = (
+        _required(env, "TRADINGAGENTS_CLOUDBASE_API_KEY", missing)
+        if backend == "document" else ""
+    )
     env_id = _required(env, "TRADINGAGENTS_CLOUDBASE_ENV_ID", missing)
     encoded_key = _required(env, "TRADINGAGENTS_MASTER_KEY", missing)
     if missing:
@@ -80,4 +92,6 @@ def load_web_runtime_config(
             env.get("TRADINGAGENTS_CLOUDBASE_REGION") or "ap-shanghai"
         ).strip(),
         master_key=master_key,
+        database_backend=backend,
+        cloudbase_api_key=api_key,
     )

@@ -15,6 +15,12 @@ def create_application_store(config: WebRuntimeConfig) -> ApplicationStore:
         return AdminStore.from_database_url(config.database_url)
     if config.master_key is None:
         raise ValueError("CloudBase runtime requires a master key")
+    if config.database_backend == "document":
+        from .document_store import CloudBaseDocumentStore
+
+        return CloudBaseDocumentStore(
+            config.cloudbase_env_id, config.cloudbase_api_key, config.master_key,
+        )
     return MySQLApplicationStore(config.database_url, config.master_key)
 
 

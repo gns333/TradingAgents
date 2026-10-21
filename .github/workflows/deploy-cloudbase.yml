@@ -1,0 +1,58 @@
+name: Deploy CloudBase personal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tradingagents/**'
+      - 'tests/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - '.github/workflows/deploy-cloudbase.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudbase-personal-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CLOUDBASE_ENV_ID: tradingagents-d3g15dvj80cd8402f
+      CLOUDBASE_REGION: ap-shanghai
+      CLOUDBASE_SERVICE: trading
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify storage and local compatibility
+        run: |
+          pip install -e '.[dev,web,cloudbase]'
+          pytest -q tests/test_web_document_store.py tests/test_web_runtime.py tests/test_web_store_contract.py tests/test_web_task_service.py
+          ruff check tradingagents/web/document_client.py tradingagents/web/document_store.py tradingagents/web/document_setup.py tradingagents/web/runtime.py tradingagents/web/store_factory.py tradingagents/web/task_service.py tests/test_web_document_store.py
+      - name: Install pinned CloudBase CLI
+        run: npm install --global @cloudbase/cli@3.8.7
+      - name: Authenticate with environment-specific deployment key
+        env:
+          CLOUDBASE_DEPLOY_API_KEY: ${{ secrets.CLOUDBASE_DEPLOY_API_KEY }}
+        run: |
+          test -n "$CLOUDBASE_DEPLOY_API_KEY"
+          tcb login --cloudbase-api-key "$CLOUDBASE_DEPLOY_API_KEY" -e "$CLOUDBASE_ENV_ID" --json
+      - name: Deploy committed source with explicit port and single instance
+        run: |
+          tcb cloudrun deploy --source . --service-name "$CLOUDBASE_SERVICE" \
+            -e "$CLOUDBASE_ENV_ID" -r "$CLOUDBASE_REGION" \
+            --port 8000 --min-num 1 --max-num 1 --force --wait
+      - name: Verify public application and database readiness
+        run: |
+          curl --fail --retry 5 --retry-delay 5 --max-time 30 \
+            'https://tradingagents-d3g15dvj80cd8402f-1258682437.ap-shanghai.app.tcloudbase.com/readyz'

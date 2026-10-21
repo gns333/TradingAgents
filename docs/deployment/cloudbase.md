@@ -7,12 +7,42 @@
 - CloudBase 云托管单实例，最小实例数和最大实例数都为 `1`。
 - 单个 Uvicorn 进程；不要覆盖镜像 `CMD`，也不要增加多 worker。
 - CloudBase Web Auth 负责登录，业务数据库中的 `app_users.role` 负责管理员授权。
-- CloudBase MySQL 持久化用户、模型配置、任务、事件和报告。
+- 个人版推荐 CloudBase 文档数据库（HTTPS）持久化用户、模型配置、任务、事件和报告；原有 MySQL 后端保留兼容。
 - 模型供应商 API Key 只在 Web 管理后台录入，不放入 GitHub 或部署环境变量。
 
 CloudBase 支持从 GitHub/GitLab 等 Git 仓库构建 Dockerfile，并配置推送后自动触发部署。参见 [CloudBase 部署方式](https://docs.cloudbase.net/run/deploy/deploy/introduce)。
 
-## 1. 准备 CloudBase 环境和 MySQL
+## 个人版部署（推荐，无需 VPC）
+
+个人版不要照下面的 MySQL TCP/VPC 步骤部署。使用服务端 HTTPS 文档 API，保留默认的本地 SQLite 和可选的 MySQL 后端。
+
+基础设施配置（真实值仅存云端，不提交 Git）：
+
+```text
+PORT=8000
+TRADINGAGENTS_RUNTIME=cloudbase
+TRADINGAGENTS_DATABASE_BACKEND=document
+TRADINGAGENTS_CLOUDBASE_ENV_ID=your-env-id
+TRADINGAGENTS_CLOUDBASE_REGION=ap-shanghai
+TRADINGAGENTS_CLOUDBASE_API_KEY=SERVER_ONLY_ENVIRONMENT_API_KEY
+TRADINGAGENTS_MASTER_KEY=URL_SAFE_BASE64_32_BYTE_KEY
+```
+
+不需要 `TRADINGAGENTS_DATABASE_URL`、MySQL 账号或 VPC。文档 API 的服务端 Key 和模型供应商 Key 是两回事：模型 Key 仍只在管理后台录入，并用 AES-GCM 加密持久化。
+
+首次部署前运行 `python -m tradingagents.web.document_setup`，创建 `ta_` 前缀的集合和索引，再将全部集合权限设置为 **ADMINONLY**。禁止浏览器直读业务集合；前端仍通过现有 API 和 CloudBase 用户身份访问。事务回执保留 7 天后由 TTL 索引清理，报告和事件不会因此被清理。
+
+队列状态、用户任务占用、事件编号用真实数据库事务更新；只对明确的事务冲突重试。提交响应丢失时查事务回执，无法确认就报错，不盲目重放。空闲调度每 5 秒检查，提交和后台设置变更会立即唤醒；设置缓存最多 5 秒。继续要求单实例、单进程，发布前应等待运行中的任务结束；重启会将中断任务标记为失败。
+
+GitHub 自动部署使用 `.github/workflows/deploy-cloudbase.yml`：推送 `main` 后先验证存储和本地兼容性，再通过官方 CLI 构建并发布到当前个人版环境。每次显式指定 `--port 8000 --min-num 1 --max-num 1`，服务端配置和凭据从云端保留，不写入构建源码。不要同时为同一个服务保留另一套分支自动发布流程。
+
+仓库 Secret `CLOUDBASE_DEPLOY_API_KEY` 使用独立的环境级部署 Key；服务内的 `TRADINGAGENTS_CLOUDBASE_API_KEY` 使用另一把运行 Key。它们具有环境管理权限，必须保密。维护者负责到期前轮换：签发新 Key → 更新对应 Secret/服务环境变量 → 重新部署并检查 `/readyz` → 吊销旧 Key。本次签发的两个 Key 均于 **2026-11-20** 到期，不要误认为续费环境会自动续期 Key。
+
+初始化管理员：先在页面注册，再在维护端使用上述基础设施配置创建存储，执行 `store.upsert_app_user({"uid": "已验证的 CloudBase UID", "email": "管理员邮箱", "role": "admin", "status": "active", "daily_limit": 100})`。必须人工核对 UID，不以客户端传入邮箱自动提权。其余 Web Auth、HTTP 网关和后台使用方法继续见第 4、6 节。
+
+本地零配置运行方式不变：不设置 `TRADINGAGENTS_RUNTIME`，执行 `tradingagents-web` 即使用 `.tradingagents/web_admin.sqlite3`，不需要云端 Key。旧 MySQL 部署继续使用默认 `TRADINGAGENTS_DATABASE_BACKEND=mysql` 和数据库 URL，不自动迁移或删除旧数据。
+
+## 1. 准备 CloudBase 环境和 MySQL（仅旧 TCP 方案）
 
 1. 在上海地域创建 CloudBase 环境。
 2. 初始化 CloudBase MySQL，并记录数据库名称、内网主机、端口、用户名和密码。

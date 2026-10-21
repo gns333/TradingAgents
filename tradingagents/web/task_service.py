@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -89,11 +90,17 @@ class AnalysisTaskService:
             with self._condition:
                 if self._stopping:
                     return
-            submitted = self.dispatch_once()
+            try:
+                submitted = self.dispatch_once()
+            except Exception:  # keep the dispatcher alive during database outages
+                logging.getLogger(__name__).exception("Analysis dispatcher database operation failed")
+                submitted = 0
             with self._condition:
                 if self._stopping:
                     return
-                self._condition.wait(timeout=0.05 if submitted else 0.5)
+                self._condition.wait(
+                    timeout=0.05 if submitted else getattr(self.store, "dispatcher_idle_seconds", 0.5)
+                )
 
     def _submit_claimed(self, run: dict[str, Any]) -> Future:
         run_id = str(run["id"])

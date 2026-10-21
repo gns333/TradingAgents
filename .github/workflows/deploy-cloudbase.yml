@@ -9,6 +9,7 @@ on:
       - 'Dockerfile'
       - 'pyproject.toml'
       - '.github/workflows/deploy-cloudbase.yml'
+      - 'scripts/deploy_cloudbase.py'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +39,7 @@ jobs:
         run: |
           pip install -e '.[dev,web,cloudbase]'
           pytest -q tests/test_web_document_store.py tests/test_web_runtime.py tests/test_web_store_contract.py tests/test_web_task_service.py
-          ruff check tradingagents/web/document_client.py tradingagents/web/document_store.py tradingagents/web/document_setup.py tradingagents/web/runtime.py tradingagents/web/store_factory.py tradingagents/web/task_service.py tests/test_web_document_store.py
+          ruff check scripts/deploy_cloudbase.py tradingagents/web/document_client.py tradingagents/web/document_store.py tradingagents/web/document_setup.py tradingagents/web/runtime.py tradingagents/web/store_factory.py tradingagents/web/task_service.py tests/test_web_document_store.py
       - name: Install pinned CloudBase CLI
         run: npm install --global @cloudbase/cli@3.8.7
       - name: Authenticate with environment-specific deployment key
@@ -48,10 +49,7 @@ jobs:
           test -n "$CLOUDBASE_DEPLOY_API_KEY"
           tcb login --cloudbase-api-key "$CLOUDBASE_DEPLOY_API_KEY" -e "$CLOUDBASE_ENV_ID" --json
       - name: Deploy committed source with explicit port and single instance
-        run: |
-          tcb --yes cloudrun deploy --source . --service-name "$CLOUDBASE_SERVICE" \
-            -e "$CLOUDBASE_ENV_ID" -r "$CLOUDBASE_REGION" \
-            --port 8000 --min-num 1 --max-num 1 --force --wait
+        run: python scripts/deploy_cloudbase.py
       - name: Verify public application and database readiness
         run: |
           curl --fail --retry 5 --retry-delay 5 --max-time 30 \

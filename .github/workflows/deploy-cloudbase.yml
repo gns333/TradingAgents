@@ -49,7 +49,7 @@ jobs:
           tcb login --cloudbase-api-key "$CLOUDBASE_DEPLOY_API_KEY" -e "$CLOUDBASE_ENV_ID" --json
       - name: Deploy committed source with explicit port and single instance
         run: |
-          tcb cloudrun deploy --source . --service-name "$CLOUDBASE_SERVICE" \
+          tcb --yes cloudrun deploy --source . --service-name "$CLOUDBASE_SERVICE" \
             -e "$CLOUDBASE_ENV_ID" -r "$CLOUDBASE_REGION" \
             --port 8000 --min-num 1 --max-num 1 --force --wait
       - name: Verify public application and database readiness

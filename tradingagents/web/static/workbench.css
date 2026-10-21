@@ -1302,6 +1302,8 @@ textarea { min-height: 68px; resize: vertical; }
 .auth-mode-tab.active { background: var(--accent-soft); color: var(--accent); }
 .cloudbase-auth-panel { display: grid; gap: 14px; margin: 0; }
 .cloudbase-auth-panel[hidden] { display: none; }
+.cloudbase-auth-panel fieldset { display: grid; gap: 14px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.cloudbase-auth-panel fieldset[hidden], .cloudbase-auth-submit[hidden] { display: none; }
 .cloudbase-auth-field { display: grid; gap: 6px; min-width: 0; }
 .cloudbase-auth-field label { margin: 0; color: var(--text); }
 .cloudbase-auth-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

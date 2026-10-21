@@ -128,7 +128,7 @@ $bytes = New-Object byte[] 32
 
 HTTP 网关开启身份认证后，前端需要把 Web SDK 获取的 Access Token 放入 `Authorization: Bearer ...`；网关验证后再把用户上下文交给应用。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication) 和 [HTTP 访问说明](https://docs.cloudbase.net/run/develop/access/client)。
 
-页面中的“注册”使用 CloudBase `signUp({ email, password })` 发出邮箱验证码，再由返回的 `verifyOtp({ token })` 完成注册；日常登录使用 `signInWithPassword({ email, password })`，不再发送验证码。“忘记密码”通过 `resetPasswordForEmail(email)` 发送验证码并设置新密码。密码始终由 CloudBase 身份服务保存，应用数据库不保存用户密码。参见 [CloudBase 身份认证](https://docs.cloudbase.net/service/authentication)。
+页面中的“注册”分两步：先用 `getVerification({ email })` 发送验证码（不需要密码），再用 `verify({ verification_id, verification_code })` 验证邮箱；验证通过后显示密码设置，提交时使用 CloudBase 返回的 `verification_token` 和验证码调用 `signUp`，然后同步为待审核用户。更改密码不会使邮箱验证失效；更改邮箱或重新发码则需要重新验证。已有账号不会通过注册流程覆盖密码，请返回登录或使用“忘记密码”。日常登录仍使用 `signInWithPassword({ email, password })`；“忘记密码”仍通过 `resetPasswordForEmail(email)` 发送验证码并设置新密码。密码始终由 CloudBase 身份服务保存，应用数据库不保存用户密码。参见 [CloudBase 用户注册](https://docs.cloudbase.net/authentication-v2/method/signup)。
 
 从旧版邮箱验证码登录升级的已有用户若尚未设置密码，可直接使用“忘记密码”完成邮箱验证并设置首个密码。
 

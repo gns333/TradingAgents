@@ -104,6 +104,7 @@
     cloudbaseApp: null,
     cloudbaseAuth: null,
     cloudbaseVerification: null,
+    cloudbaseRegistrationBusy: false,
     accessToken: '',
     currentUser: null,
     adminToken: localStorage.getItem('ta_admin_token') || '',
@@ -355,7 +356,7 @@
 
   const CLOUDBASE_AUTH_COPY = {
     login: ['欢迎回来', '使用邮箱和密码登录，继续查看分析任务与报告。'],
-    register: ['创建账号', '验证邮箱并设置密码，账号启用后即可开始分析。'],
+    register: ['创建账号', '先验证邮箱，再设置密码；管理员启用账号后即可开始分析。'],
     reset: ['重置密码', '验证你的邮箱后，设置一个新的登录密码。']
   };
   const cloudBaseCodeTimers = new Map();
@@ -567,17 +568,44 @@
     cloudBaseCodeTimers.set(button, timer);
   }
 
-  async function requestCloudBaseRegistrationCode(email, password) {
+  function resetCloudBaseRegistration() {
+    state.cloudbaseVerification = null;
+    const credentials = qs('#cloudbase-register-credentials');
+    if (credentials) {
+      credentials.hidden = true;
+      credentials.disabled = true;
+    }
+    const next = qs('#cloudbase-verify-email');
+    if (next) next.hidden = false;
+    const submit = qs('#cloudbase-sign-up');
+    if (submit) submit.hidden = true;
+    const code = qs('#cloudbase-register-code');
+    if (code) {
+      code.readOnly = false;
+      code.value = '';
+    }
+    ['password', 'confirm'].forEach(field => {
+      const input = qs(`#cloudbase-register-${field}`);
+      if (input) input.value = '';
+    });
+    setText('#cloudbase-register-step', '第 1 步：验证邮箱');
+  }
+
+  async function requestCloudBaseRegistrationCode(email) {
     if (!state.cloudbaseAuth) throw new Error('CloudBase Auth 尚未初始化');
-    if (typeof state.cloudbaseAuth.signUp !== 'function') {
-      throw new Error('当前 CloudBase SDK 不支持邮箱注册');
+    if (typeof state.cloudbaseAuth.getVerification !== 'function') {
+      throw new Error('当前 CloudBase SDK 不支持邮箱验证');
     }
-    const result = await state.cloudbaseAuth.signUp({ email, password });
-    const challenge = requireCloudBaseSuccess(result, '验证码发送失败');
-    if (typeof challenge.verifyOtp !== 'function') {
-      throw new Error('CloudBase 未返回验证码校验能力');
+    resetCloudBaseRegistration();
+    const pending = { email, mode: 'register' };
+    state.cloudbaseVerification = pending;
+    const result = await state.cloudbaseAuth.getVerification({ email });
+    const verification = requireCloudBaseSuccess(result, '验证码发送失败');
+    if (!verification.verification_id) {
+      throw new Error('CloudBase 未返回邮箱验证凭证');
     }
-    state.cloudbaseVerification = { email, mode: 'register', challenge };
+    if (state.cloudbaseVerification !== pending) throw new Error('邮箱已更改，请重新发送验证码');
+    pending.verification = verification;
   }
 
   async function verifyCloudBaseRegistrationCode(email, code) {
@@ -586,9 +614,55 @@
     if (!pending || pending.email !== email || pending.mode !== 'register') {
       throw new Error('请先向当前邮箱发送验证码');
     }
-    const verifyResult = await pending.challenge.verifyOtp({ token: code });
-    requireCloudBaseSuccess(verifyResult, '验证码校验失败');
-    return syncCloudBaseUser(email);
+    if (!pending.verification) throw new Error('请等待验证码发送完成');
+    const verifyResult = await state.cloudbaseAuth.verify({
+      verification_id: pending.verification.verification_id,
+      verification_code: code
+    });
+    const verified = requireCloudBaseSuccess(verifyResult, '验证码校验失败');
+    if (state.cloudbaseVerification !== pending) throw new Error('邮箱已更改，请重新验证');
+    if (!verified.verification_token) throw new Error('CloudBase 未返回邮箱验证结果');
+    // Never replace an existing account's password through the registration path.
+    if (pending.verification.is_user) {
+      resetCloudBaseRegistration();
+      throw new Error('邮箱验证完成，请返回登录；如需设置密码，请使用“忘记密码”');
+    }
+    pending.verificationToken = verified.verification_token;
+    pending.code = code;
+    const credentials = qs('#cloudbase-register-credentials');
+    if (credentials) {
+      credentials.hidden = false;
+      credentials.disabled = false;
+    }
+    const next = qs('#cloudbase-verify-email');
+    if (next) next.hidden = true;
+    const submit = qs('#cloudbase-sign-up');
+    if (submit) submit.hidden = false;
+    const codeInput = qs('#cloudbase-register-code');
+    if (codeInput) codeInput.readOnly = true;
+    setText('#cloudbase-register-step', '第 2 步：设置密码并提交审核');
+    qs('#cloudbase-register-password')?.focus();
+  }
+
+  async function submitCloudBaseEmailVerification() {
+    if (state.cloudbaseRegistrationBusy) return;
+    const emailInput = qs('#cloudbase-register-email');
+    const codeInput = qs('#cloudbase-register-code');
+    if (!emailInput?.reportValidity() || !codeInput?.reportValidity()) return;
+    const email = emailInput.value.trim().toLowerCase();
+    const button = qs('#cloudbase-verify-email');
+    if (button) button.disabled = true;
+    state.cloudbaseRegistrationBusy = true;
+    setStatus('#cloudbase-auth-status', '正在验证邮箱…', undefined);
+    try {
+      await verifyCloudBaseRegistrationCode(email, codeInput.value.trim());
+      setStatus('#cloudbase-auth-status', '邮箱已验证，请设置登录密码', true);
+    } catch (err) {
+      setStatus('#cloudbase-auth-status', cloudBaseErrorMessage(err, '邮箱验证失败'), false);
+    } finally {
+      state.cloudbaseRegistrationBusy = false;
+      if (button) button.disabled = false;
+    }
   }
 
   async function requestCloudBasePasswordReset(email) {
@@ -605,10 +679,10 @@
   }
 
   async function submitCloudBaseVerification(mode) {
+    if (state.cloudbaseRegistrationBusy) return;
     const emailInput = qs(`#cloudbase-${mode}-email`);
     const email = emailInput?.value.trim().toLowerCase() || '';
-    if (mode === 'register' && !validateCloudBaseRegistrationFields()) return;
-    if (mode !== 'register' && (!email || !emailInput?.checkValidity())) {
+    if (!email || !emailInput?.checkValidity()) {
       setStatus('#cloudbase-auth-status', '请输入有效邮箱', false);
       emailInput?.reportValidity();
       return;
@@ -619,7 +693,7 @@
     let sent = false;
     try {
       if (mode === 'register') {
-        await requestCloudBaseRegistrationCode(email, qs('#cloudbase-register-password').value);
+        await requestCloudBaseRegistrationCode(email);
       } else {
         await requestCloudBasePasswordReset(email);
       }
@@ -639,22 +713,39 @@
   }
 
   async function submitCloudBaseRegistration() {
+    if (state.cloudbaseRegistrationBusy) return;
     const emailInput = qs('#cloudbase-register-email');
     const email = emailInput?.value.trim().toLowerCase() || '';
     const form = qs('#cloudbase-register-panel');
+    const pending = state.cloudbaseVerification;
+    if (!pending?.verificationToken || pending.mode !== 'register' || pending.email !== email) {
+      await submitCloudBaseEmailVerification();
+      return;
+    }
     if (!validateCloudBaseRegistrationFields() || !form?.reportValidity()) return;
-    const code = qs('#cloudbase-register-code').value.trim();
 
     const button = qs('#cloudbase-sign-up');
     if (button) button.disabled = true;
+    state.cloudbaseRegistrationBusy = true;
+    if (emailInput) emailInput.readOnly = true;
+    const sendButton = qs('#cloudbase-send-code');
+    const sendWasDisabled = sendButton?.disabled;
+    if (sendButton) sendButton.disabled = true;
     setStatus('#cloudbase-auth-status', '正在注册并提交审核…', undefined);
     try {
-      const registration = await verifyCloudBaseRegistrationCode(email, code);
+      if (!pending.registered) {
+        const result = await state.cloudbaseAuth.signUp({
+          email,
+          password: qs('#cloudbase-register-password').value,
+          verification_token: pending.verificationToken,
+          verification_code: pending.code
+        });
+        requireCloudBaseSuccess(result, '注册失败');
+        pending.registered = true;
+      }
+      const registration = await syncCloudBaseUser(email);
       await signOutCloudBase(false);
-      state.cloudbaseVerification = null;
-      if (qs('#cloudbase-register-code')) qs('#cloudbase-register-code').value = '';
-      if (qs('#cloudbase-register-password')) qs('#cloudbase-register-password').value = '';
-      if (qs('#cloudbase-register-confirm')) qs('#cloudbase-register-confirm').value = '';
+      resetCloudBaseRegistration();
       if (qs('#cloudbase-login-email')) qs('#cloudbase-login-email').value = email;
       setCloudBaseAuthMode('login', false);
       const message = registration.approval_status === 'active'
@@ -668,7 +759,10 @@
         false
       );
     } finally {
+      state.cloudbaseRegistrationBusy = false;
       if (button) button.disabled = false;
+      if (emailInput) emailInput.readOnly = false;
+      if (sendButton) sendButton.disabled = Boolean(sendWasDisabled && cloudBaseCodeTimers.has(sendButton));
     }
   }
 
@@ -2764,6 +2858,7 @@
       button.addEventListener('click', () => setCloudBaseAuthMode(button.dataset.authMode));
     });
     qs('#cloudbase-send-code')?.addEventListener('click', () => submitCloudBaseVerification('register'));
+    qs('#cloudbase-verify-email')?.addEventListener('click', submitCloudBaseEmailVerification);
     qs('#cloudbase-send-reset-code')?.addEventListener('click', () => submitCloudBaseVerification('reset'));
     qs('#cloudbase-login-panel')?.addEventListener('submit', event => {
       event.preventDefault();
@@ -2791,9 +2886,12 @@
       ['email', 'password', 'confirm'].forEach(field => {
         const input = qs(`#cloudbase-${mode}-${field}`);
         input?.addEventListener('input', () => {
-          const invalidatesChallenge = mode === 'register' || field === 'email';
+          const invalidatesChallenge = field === 'email';
           if (invalidatesChallenge && state.cloudbaseVerification?.mode === mode) {
-            state.cloudbaseVerification = null;
+            if (mode === 'register') {
+              resetCloudBaseRegistration();
+              setStatus('#cloudbase-auth-status', '邮箱已更改，请重新发送验证码', undefined);
+            } else state.cloudbaseVerification = null;
           }
           clearCloudBaseFieldError(input);
           if (mode === 'register' && field === 'password') {
@@ -2860,6 +2958,10 @@
     restoreCloudBaseSession,
     requestCloudBaseRegistrationCode,
     verifyCloudBaseRegistrationCode,
+    submitCloudBaseVerification,
+    submitCloudBaseEmailVerification,
+    submitCloudBaseRegistration,
+    resetCloudBaseRegistration,
     requestCloudBasePasswordReset,
     submitCloudBasePasswordReset,
     persistAdminSession,

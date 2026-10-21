@@ -454,10 +454,13 @@ def test_cloudbase_email_registration_ui_and_sdk_flow_exist():
     assert 'id="cloudbase-register-confirm"' in html
     assert 'id="cloudbase-send-code"' in html
     assert 'id="cloudbase-sign-up"' in html
-    assert "async function requestCloudBaseRegistrationCode(email, password)" in js
+    assert 'id="cloudbase-verify-email"' in html
+    assert 'id="cloudbase-register-credentials" hidden disabled' in html
+    assert "async function requestCloudBaseRegistrationCode(email)" in js
     assert "async function verifyCloudBaseRegistrationCode(email, code)" in js
-    assert "state.cloudbaseAuth.signUp({ email, password })" in js
-    assert "challenge.verifyOtp" in js
+    assert "state.cloudbaseAuth.getVerification({ email })" in js
+    assert "state.cloudbaseAuth.verify({" in js
+    assert "verification_token: pending.verificationToken" in js
     assert "signInWithOtp" not in js
     assert "'/api/register'" in js
 
@@ -479,7 +482,9 @@ def test_cloudbase_registration_validation_is_visible_and_focuses_first_error():
 
     send_start = js.index("async function submitCloudBaseVerification(mode)")
     send_body = js[send_start : send_start + 1000]
-    assert "mode === 'register' && !validateCloudBaseRegistrationFields()" in send_body
+    assert "validateCloudBaseRegistrationFields" not in send_body
+    assert "requestCloudBaseRegistrationCode(email)" in js
+    assert "const invalidatesChallenge = field === 'email'" in js
 
 
 def test_cloudbase_password_login_and_recovery_sdk_flows_exist():

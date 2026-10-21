@@ -37,14 +37,14 @@ async function fixture(t, options = {}) {
     }
     if (options.rich && url.pathname === '/api/reports') {
       return route.fulfill({ json: { items: [{
-        id: 'sample', ticker: '600519.SH', stock_name: '贵州茅台', decision: 'buy',
+        id: 1, ticker: '600519.SH', stock_name: '贵州茅台', decision: 'buy',
         trade_date: '2026-10-21', created_at: '2026-10-21T07:00:00Z',
         owner_email: 'a-very-long-research-account@example.com'
       }] } });
     }
-    if (options.rich && url.pathname === '/api/reports/sample') {
+    if (options.rich && url.pathname === '/api/reports/1') {
       return route.fulfill({ json: { item: {
-        id: 'sample', ticker: '600519.SH', stock_name: '贵州茅台股份有限公司', decision: 'buy',
+        id: 1, ticker: '600519.SH', stock_name: '贵州茅台股份有限公司', decision: 'buy',
         trade_date: '2026-10-21', created_at: '2026-10-21T07:00:00Z', analysts: ['market', 'fundamentals'],
         owner_email: 'a-very-long-research-account@example.com',
         sections: {
@@ -344,3 +344,81 @@ for (const viewport of [
     await assertNoPageOverflow('admin-light');
   });
 }
+
+async function openExportReport(t) {
+  const { page } = await fixture(t, { rich: true });
+  await page.locator('#close-cloudbase-auth-modal').click();
+  await page.evaluate(() => {
+    window.sdkSignedIn = true;
+    window.TradingAgentsWorkbench.state.accessToken = 'stale-token';
+    window.TradingAgentsWorkbench.state.currentUser = { uid: 'test', is_admin: false };
+  });
+  await page.locator('[data-view="reports"]').click();
+  await page.locator('.history-open').waitFor();
+  assert.equal(await page.locator('#history-export-pdf').isDisabled(), true);
+  await page.locator('.history-open').click();
+  await page.waitForFunction(() => !document.querySelector('#history-export-pdf').disabled);
+  return page;
+}
+
+test('PDF full report and active chapter download with refreshed authentication', async t => {
+  const page = await openExportReport(t);
+  const requests = [];
+  await page.route('**/api/reports/1/pdf*', async route => {
+    requests.push({ url: route.request().url(), headers: route.request().headers() });
+    await route.fulfill({
+      contentType: 'application/pdf', body: '%PDF-1.4\n%%EOF',
+      headers: { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent('贵州茅台-600519.SH-2026-10-21.pdf')}` }
+    });
+  });
+  let downloading = page.waitForEvent('download');
+  await page.locator('#history-export-pdf').click();
+  const download = await downloading;
+  assert.equal(download.suggestedFilename(), '贵州茅台-600519.SH-2026-10-21.pdf');
+  await page.waitForFunction(() => !document.querySelector('#history-export-pdf').disabled);
+  assert.equal(new URL(requests[0].url).searchParams.has('section'), false);
+  assert.equal(requests[0].headers.authorization, 'Bearer test-session-token');
+  await page.locator('#history-export-scope').selectOption('current');
+  await page.locator('#history-detail [data-section="fundamentals_report"]').click();
+  downloading = page.waitForEvent('download');
+  await page.locator('#history-export-pdf').click();
+  await downloading;
+  assert.equal(new URL(requests[1].url).searchParams.get('section'), 'fundamentals_report');
+});
+
+test('PDF generation shows progress, prevents duplicate requests, and recovers from 429', async t => {
+  const page = await openExportReport(t);
+  let release;
+  let count = 0;
+  await page.route('**/api/reports/1/pdf*', async route => {
+    count += 1;
+    await new Promise(resolve => { release = resolve; });
+    await route.fulfill({ status: 429, json: { detail: '另一个 PDF 正在生成，请稍后重试' } });
+  });
+  await page.locator('#history-export-pdf').click();
+  await page.waitForFunction(() => document.querySelector('#history-export-pdf').textContent.includes('正在生成'));
+  assert.equal(await page.locator('#history-export-scope').isDisabled(), true);
+  await page.locator('#history-export-pdf').evaluate(button => button.click());
+  assert.equal(count, 1);
+  release();
+  await page.waitForFunction(() => document.querySelector('#history-export-status').textContent.includes('稍后重试'));
+  assert.equal(await page.locator('#history-export-pdf').isEnabled(), true);
+  assert.equal(await page.locator('#history-export-scope').isEnabled(), true);
+});
+
+test('PDF errors never download an HTML gateway response or unauthenticated JSON', async t => {
+  const page = await openExportReport(t);
+  const downloads = [];
+  page.on('download', download => downloads.push(download));
+  let unauthorized = true;
+  await page.route('**/api/reports/1/pdf*', route => unauthorized
+    ? route.fulfill({ status: 401, json: { detail: { message: '请先登录' } } })
+    : route.fulfill({ contentType: 'text/html', body: '<h1>gateway error</h1>' }));
+  await page.locator('#history-export-pdf').click();
+  await page.waitForFunction(() => document.querySelector('#history-export-status').textContent.includes('请先登录'));
+  unauthorized = false;
+  await page.locator('#history-export-pdf').click();
+  await page.waitForFunction(() => document.querySelector('#history-export-status').textContent.includes('有效的 PDF'));
+  assert.equal(downloads.length, 0);
+  assert.equal(await page.locator('#history-export-pdf').isEnabled(), true);
+});

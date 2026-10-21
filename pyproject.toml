@@ -36,6 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "pypdf>=5.0",
     "ruff>=0.15",
     "pytest>=8.0",
     "pytest-subtests>=0.13",
@@ -52,6 +53,8 @@ china = [
 web = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
+    "reportlab>=4.4",
+    "markdown-it-py>=3.0",
 ]
 cloudbase = [
     "pymysql>=1.1",

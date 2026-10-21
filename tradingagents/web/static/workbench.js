@@ -128,6 +128,9 @@
     historyActiveId: null,
     historyReport: null,
     historyActiveSection: '',
+    historyLoading: false,
+    historyLoadSequence: 0,
+    reportExporting: false,
     tickerSearchTimer: null,
     tickerSearchSequence: 0,
     adminPane: 'models',
@@ -927,7 +930,7 @@
     updateIdentitySummary();
   }
 
-  async function apiJson(url, options = {}) {
+  async function apiFetch(url, options = {}) {
     if (state.runtime.auth === 'cloudbase' && state.cloudbaseAuth && state.accessToken) {
       const tokenResult = await state.cloudbaseAuth.getAccessToken();
       state.accessToken = tokenResult?.accessToken || tokenResult?.data?.accessToken || state.accessToken;
@@ -940,8 +943,8 @@
       };
     }
     const response = await fetch(url, options);
-    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       const detail = data.detail;
       const message = typeof detail === 'object' && detail
         ? detail.message || detail.error_type || `HTTP ${response.status}`
@@ -951,7 +954,12 @@
       error.detail = detail;
       throw error;
     }
-    return data;
+    return response;
+  }
+
+  async function apiJson(url, options = {}) {
+    const response = await apiFetch(url, options);
+    return response.json().catch(() => ({}));
   }
 
   function withIdentity(url) {
@@ -2101,12 +2109,21 @@
               </div>
               <span class="report-meta" id="history-detail-meta">从左侧选择一份历史报告</span>
             </div>
+            <div class="report-export-actions" aria-label="报告导出">
+              <select id="history-export-scope" aria-label="PDF 导出范围" disabled>
+                <option value="all">完整报告</option>
+                <option value="current">当前章节</option>
+              </select>
+              <button class="secondary-button compact-button" type="button" id="history-export-pdf" disabled>导出 PDF</button>
+            </div>
           </div>
+          <div class="report-export-status status-box" id="history-export-status" role="status" aria-live="polite" hidden></div>
           <div class="report-viewer" id="history-detail"><div class="empty-state"><strong class="empty-state-title">选择一份研究报告</strong><p>可按股票名称、代码或买卖决策筛选历史记录。</p></div></div>
         </section>
       </div>
     `;
     qs('#reload-history')?.addEventListener('click', loadReportHistory);
+    qs('#history-export-pdf')?.addEventListener('click', exportHistoryReportPdf);
     qs('#history-mobile-back')?.addEventListener('click', () => {
       setHistoryMobileDetail(false);
       qs('.history-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2130,6 +2147,69 @@
     });
     renderHistoryList();
     if (state.historyReport) renderHistoryDetail();
+    updateReportExportControls();
+  }
+
+  function updateReportExportControls() {
+    const available = Boolean(state.historyReport && Object.values(state.historyReport.sections || {}).some(Boolean));
+    const disabled = !available || state.historyLoading || state.reportExporting;
+    const button = qs('#history-export-pdf');
+    if (button) {
+      button.disabled = disabled;
+      button.textContent = state.reportExporting ? '正在生成…' : '导出 PDF';
+      button.setAttribute('aria-busy', String(state.reportExporting));
+    }
+    const scope = qs('#history-export-scope');
+    if (scope) scope.disabled = disabled;
+  }
+
+  async function exportHistoryReportPdf() {
+    const report = state.historyReport;
+    const reportId = state.historyActiveId;
+    if (!report || !reportId || state.historyLoading || state.reportExporting) return;
+    const currentOnly = qs('#history-export-scope')?.value === 'current';
+    const section = currentOnly ? state.historyActiveSection : '';
+    const status = qs('#history-export-status');
+    if (status) status.hidden = false;
+    if (currentOnly && !report.sections?.[section]) {
+      setStatus('#history-export-status', '请先选择一个有内容的报告章节', false);
+      return;
+    }
+    state.reportExporting = true;
+    updateReportExportControls();
+    setStatus('#history-export-status', '正在生成 PDF，请稍候…', undefined);
+    try {
+      const query = section ? `?section=${encodeURIComponent(section)}` : '';
+      const response = await apiFetch(withIdentity(`/api/reports/${encodeURIComponent(reportId)}/pdf${query}`), {
+        headers: authHeaders()
+      });
+      if (!response.headers.get('content-type')?.includes('application/pdf')) {
+        throw new Error('服务未返回有效的 PDF，请稍后重试');
+      }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('PDF 文件为空，请稍后重试');
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(response.headers.get('content-disposition') || '')?.[1];
+      let filename = `${report.stock_name || report.ticker || '研究报告'}-${report.trade_date || ''}.pdf`;
+      if (encodedName) {
+        try { filename = decodeURIComponent(encodedName); } catch { /* Keep the readable fallback. */ }
+      }
+      filename = filename.replace(/[\\/\x00-\x1f]/g, '_');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      try { link.click(); } finally {
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      if (state.historyActiveId === reportId) setStatus('#history-export-status', 'PDF 已生成，下载已开始', true);
+    } catch (err) {
+      if (state.historyActiveId === reportId) setStatus('#history-export-status', `导出失败：${err.message}`, false);
+    } finally {
+      state.reportExporting = false;
+      updateReportExportControls();
+    }
   }
 
   // Client-side filter over the already-loaded history list.
@@ -2155,6 +2235,9 @@
     qs('#history-summary')?.querySelector('.decision-badge')?.remove();
     const detail = qs('#history-detail');
     if (detail) detail.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+    updateReportExportControls();
+    const exportStatus = qs('#history-export-status');
+    if (exportStatus) exportStatus.hidden = true;
     setHistoryMobileDetail(false);
   }
 
@@ -2222,8 +2305,14 @@
   }
 
   async function openHistoryReport(id) {
+    const sequence = ++state.historyLoadSequence;
+    state.historyLoading = true;
+    updateReportExportControls();
+    const exportStatus = qs('#history-export-status');
+    if (exportStatus) exportStatus.hidden = true;
     try {
       const data = await apiJson(withIdentity(`/api/reports/${id}`), { headers: adminHeaders() });
+      if (sequence !== state.historyLoadSequence) return;
       state.historyActiveId = id;
       state.historyReport = data.item || null;
       state.historyActiveSection = '';
@@ -2235,7 +2324,12 @@
         });
       }
     } catch (err) {
-      setText('#history-detail-meta', `加载失败：${err.message}`);
+      if (sequence === state.historyLoadSequence) setText('#history-detail-meta', `加载失败：${err.message}`);
+    } finally {
+      if (sequence === state.historyLoadSequence) {
+        state.historyLoading = false;
+        updateReportExportControls();
+      }
     }
   }
 
@@ -2261,11 +2355,12 @@
     if (summary) {
       summary.querySelector('.decision-badge')?.remove();
       const badge = decisionBadgeHtml(report.decision);
-      if (badge) summary.insertAdjacentHTML('beforeend', badge);
+      if (badge) (summary.querySelector('.report-identity-main') || summary).insertAdjacentHTML('beforeend', badge);
     }
     buildReportTabs(detail, report.sections || {}, state.historyActiveSection, section => {
       state.historyActiveSection = section;
     });
+    updateReportExportControls();
   }
 
   async function deleteHistoryReport(id) {

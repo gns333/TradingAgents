@@ -7,6 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .admin_store import ActiveRunExists, get_admin_store
 from .events import AnalysisEvent, sse_encode
@@ -19,6 +20,13 @@ from .identity import (
     create_identity_provider,
 )
 from .model_catalog import CatalogUnsupported, ModelCatalogError, get_model_catalog
+from .report_pdf import (
+    PDFExportBusy,
+    PDFExportTooLarge,
+    PDFExportUnavailable,
+    render_report_pdf,
+    report_pdf_filename,
+)
 from .runtime import WebRuntimeConfig, load_web_runtime_config
 from .stock_directory import get_stock_directory
 from .store import (
@@ -295,6 +303,44 @@ def create_app(
         if report is None:
             raise HTTPException(status_code=404, detail="report not found")
         return {"item": report}
+
+    @app.get("/api/reports/{item_id}/pdf")
+    def export_report_pdf(
+        item_id: int,
+        request: Request,
+        section: str | None = Query(None, max_length=100),
+        access_email: str | None = Query(None),
+    ):
+        # Authorize and load from the server store. Never render client-supplied
+        # report bodies or trust a browser-supplied owner/role.
+        principal = _principal_from_request(request, access_email)
+        owner_key = None if principal.is_admin else principal.owner_key
+        report = store.get_analysis_report(item_id, owner_key=owner_key)
+        if report is None:
+            raise HTTPException(status_code=404, detail="report not found")
+        try:
+            content = render_report_pdf(report, section)
+        except PDFExportBusy as exc:
+            raise HTTPException(status_code=429, detail=str(exc), headers={"Retry-After": "3"}) from exc
+        except PDFExportUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except PDFExportTooLarge as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        filename = report_pdf_filename(report, section)
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": (
+                    f"attachment; filename=report-{item_id}.pdf; "
+                    f"filename*=UTF-8''{quote(filename, safe='')}"
+                ),
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.delete("/api/reports/{item_id}")
     def delete_report(

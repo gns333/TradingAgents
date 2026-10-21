@@ -141,10 +141,11 @@ def test_workbench_polling_uses_authenticated_api_requests():
 def test_api_json_authenticates_headerless_cloudbase_requests():
     js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
 
-    api_start = js.index("async function apiJson(url, options = {})")
+    api_start = js.index("async function apiFetch(url, options = {})")
     api_body = js[api_start : api_start + 1000]
     assert "&& options.headers" not in api_body
     assert "...(options.headers || {})" in api_body
+    assert "const response = await apiFetch(url, options);" in js
     assert "Authorization: `Bearer ${state.accessToken}`" in api_body
 
 
@@ -512,6 +513,22 @@ def test_workbench_dialogs_restore_focus_and_isolate_background_navigation():
     assert "event.key === 'Tab'" in js
     assert "panel.setAttribute('role', 'tabpanel')" in js
     assert "['ArrowLeft', 'ArrowRight', 'Home', 'End']" in js
+
+
+def test_report_center_exports_pdf_with_authentication_and_clear_states():
+    js = (STATIC_DIR / "workbench.js").read_text(encoding="utf-8")
+    css = (STATIC_DIR / "workbench.css").read_text(encoding="utf-8")
+
+    assert 'id="history-export-scope"' in js
+    assert 'id="history-export-pdf" disabled' in js
+    assert 'id="history-export-status" role="status"' in js
+    assert "async function exportHistoryReportPdf()" in js
+    assert "async function apiFetch(url, options = {})" in js
+    assert "state.historyLoading || state.reportExporting" in js
+    assert "URL.createObjectURL(blob)" in js
+    assert "URL.revokeObjectURL(url)" in js
+    assert "response.headers.get('content-type')?.includes('application/pdf')" in js
+    assert ".report-export-actions" in css
 
 
 def test_cloudbase_password_login_and_recovery_sdk_flows_exist():

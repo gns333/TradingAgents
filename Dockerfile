@@ -18,6 +18,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends fonts-wqy-zenhei \
+ && rm -rf /var/lib/apt/lists/* \
+ && python -c "from tradingagents.web.report_pdf import _fonts; _fonts()"
+
 RUN useradd --create-home appuser \
  && install -d -m 0755 -o appuser -g appuser /home/appuser/.tradingagents
 USER appuser

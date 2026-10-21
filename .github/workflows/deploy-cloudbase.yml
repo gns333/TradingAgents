@@ -1,15 +1,6 @@
-name: Deploy CloudBase personal
+name: Legacy CloudBase upload (disabled)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'tradingagents/**'
-      - 'tests/**'
-      - 'Dockerfile'
-      - 'pyproject.toml'
-      - '.github/workflows/deploy-cloudbase.yml'
-      - 'scripts/deploy_cloudbase.py'
   workflow_dispatch:
 
 permissions:
@@ -21,6 +12,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Production uses CloudBase's account-authorized GitHub webhook instead.
+    # Preserve this legacy configuration until its owner approves cleanup.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:

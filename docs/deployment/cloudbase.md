@@ -34,9 +34,11 @@ TRADINGAGENTS_MASTER_KEY=URL_SAFE_BASE64_32_BYTE_KEY
 
 队列状态、用户任务占用、事件编号用真实数据库事务更新；只对明确的事务冲突重试。提交响应丢失时查事务回执，无法确认就报错，不盲目重放。空闲调度每 5 秒检查，提交和后台设置变更会立即唤醒；设置缓存最多 5 秒。继续要求单实例、单进程，发布前应等待运行中的任务结束；重启会将中断任务标记为失败。
 
-GitHub 自动部署使用 `.github/workflows/deploy-cloudbase.yml`：推送 `main` 后先验证存储和本地兼容性，再通过官方 CLI 获取源码包上传授权、调用 `UpdateCloudRunServer` 发布。`scripts/deploy_cloudbase.py` 使用 `git archive HEAD` 只上传本次提交的源码，上传带明确超时和重试，不依赖腾讯云 GitHub Webhook 授权。对于海外 Runner 无法连接的上传别名，使用其已核验的腾讯云 COS CNAME 源站并保留签名中的 Host，TLS 校验始终开启。每次显式指定端口 `8000` 和实例数 `1/1`，等待本次任务结束；服务端配置和凭据从云端保留，不写入构建源码。不要同时为同一个服务保留另一套分支自动发布流程。
+GitHub 自动部署使用 CloudBase 原生 Git 仓库绑定：仓库 `gns333/TradingAgents`、分支 `main`、服务 `trading`、端口 `8000`、实例数 `1/1`。腾讯云账户级 GitHub 授权负责创建推送 Webhook，推送后由腾讯云直接拉取、构建和发布，不需要 GitHub Runner 上传源码，也不需要在 GitHub 保存云端部署密钥。服务端配置和凭据从云端保留，不写入构建源码。不要同时为同一个服务开启另一套 Actions 发布流程。
 
-仓库 Secret `CLOUDBASE_DEPLOY_API_KEY` 使用独立的环境级部署 Key；服务内的 `TRADINGAGENTS_CLOUDBASE_API_KEY` 使用另一把运行 Key。它们具有环境管理权限，必须保密。维护者负责到期前轮换：签发新 Key → 更新对应 Secret/服务环境变量 → 重新部署并检查 `/readyz` → 吊销旧 Key。本次签发的两个 Key 均于 **2026-11-20** 到期，不要误认为续费环境会自动续期 Key。
+旧 `.github/workflows/deploy-cloudbase.yml` 已停用自动触发且作业设为跳过，仅保留配置供批准清理；其中的上传脚本和 GitHub 部署 Secret 不参与生产发布。
+
+服务内的 `TRADINGAGENTS_CLOUDBASE_API_KEY` 使用专用运行 Key，具有环境管理权限，必须保密。维护者负责到期前轮换：签发新 Key → 更新服务环境变量 → 重新部署并检查 `/readyz` → 吊销旧 Key。本次运行 Key 于 **2026-11-20** 到期，不要误认为续费环境会自动续期 Key。Git 仓库授权和环境级 API Key 是不同身份边界：不要用环境 Key 替代腾讯云账户去重新绑定 GitHub Webhook。
 
 初始化管理员：先在页面注册，再在维护端使用上述基础设施配置创建存储，执行 `store.upsert_app_user({"uid": "已验证的 CloudBase UID", "email": "管理员邮箱", "role": "admin", "status": "active", "daily_limit": 100})`。必须人工核对 UID，不以客户端传入邮箱自动提权。其余 Web Auth、HTTP 网关和后台使用方法继续见第 4、6 节。
 

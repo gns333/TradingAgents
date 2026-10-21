@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -42,18 +43,28 @@ def upload_source(env_id, server):
     info = api("DescribeCloudBaseBuildService", {"EnvId": env_id, "ServiceName": server},
                service="tcb", version="2018-06-08")
     headers = {item["Key"]: item["Value"] for item in info.get("UploadHeaders", [])}
+    upload_url = info["UploadUrl"]
+    parts = urlsplit(upload_url)
+    if parts.hostname == "cloudbaserun-code-cos.cloudbase.net":
+        # This is the upload alias's verified public CNAME (not a third-party
+        # proxy). Preserve the signed Host while using the COS TLS endpoint;
+        # the alias's TLS entry is unreachable from some GitHub-hosted runners.
+        origin = "cloudaccess-run-rp-1258016615.cos.ap-shanghai.myqcloud.com"
+        upload_url = urlunsplit((parts.scheme, origin, parts.path, parts.query, parts.fragment))
+        headers["Host"] = parts.hostname
     print(f"Uploading committed source: {len(source)} bytes", flush=True)
     for attempt in range(3):
         try:
-            response = requests.put(info["UploadUrl"], data=source, headers=headers, timeout=(10, 90))
+            response = requests.put(upload_url, data=source, headers=headers, timeout=(10, 90))
             if response.ok:
                 print("Source package uploaded", flush=True)
                 return {"DeployType": "package", "PackageName": info["PackageName"],
                         "PackageVersion": info["PackageVersion"], "ReleaseType": "FULL"}
             if response.status_code < 500:
                 raise RuntimeError(f"Source upload rejected: HTTP {response.status_code}")
-        except requests.RequestException:
-            pass  # Signed URLs/headers must never be included in logged exceptions.
+        except requests.RequestException as exc:
+            print("Upload transport error:", type(exc).__name__, flush=True)
+            # Signed URLs/headers must never be included in logged exceptions.
         print(f"Source upload attempt {attempt + 1} failed; retrying", flush=True)
         time.sleep(5 * (attempt + 1))
     raise RuntimeError("Source upload failed after three bounded attempts")

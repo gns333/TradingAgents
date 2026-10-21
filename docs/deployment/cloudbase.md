@@ -36,7 +36,7 @@ TRADINGAGENTS_MASTER_KEY=URL_SAFE_BASE64_32_BYTE_KEY
 
 GitHub 自动部署使用 CloudBase 原生 Git 仓库绑定：仓库 `gns333/TradingAgents`、分支 `main`、服务 `trading`、端口 `8000`、实例数 `1/1`。腾讯云账户级 GitHub 授权负责创建推送 Webhook，推送后由腾讯云直接拉取、构建和发布，不需要 GitHub Runner 上传源码，也不需要在 GitHub 保存云端部署密钥。服务端配置和凭据从云端保留，不写入构建源码。不要同时为同一个服务开启另一套 Actions 发布流程。
 
-旧 `.github/workflows/deploy-cloudbase.yml` 已停用自动触发且作业设为跳过，仅保留配置供批准清理；其中的上传脚本和 GitHub 部署 Secret 不参与生产发布。
+旧 Actions 部署工作流、上传脚本及专用部署凭据已清理；生产发布仅使用上述 CloudBase 原生 GitHub 绑定。应用运行密钥独立保留，不受该清理影响。
 
 服务内的 `TRADINGAGENTS_CLOUDBASE_API_KEY` 使用专用运行 Key，具有环境管理权限，必须保密。维护者负责到期前轮换：签发新 Key → 更新服务环境变量 → 重新部署并检查 `/readyz` → 吊销旧 Key。本次运行 Key 于 **2026-11-20** 到期，不要误认为续费环境会自动续期 Key。Git 仓库授权和环境级 API Key 是不同身份边界：不要用环境 Key 替代腾讯云账户去重新绑定 GitHub Webhook。
 

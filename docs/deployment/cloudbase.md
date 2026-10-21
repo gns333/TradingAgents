@@ -34,7 +34,7 @@ TRADINGAGENTS_MASTER_KEY=URL_SAFE_BASE64_32_BYTE_KEY
 
 队列状态、用户任务占用、事件编号用真实数据库事务更新；只对明确的事务冲突重试。提交响应丢失时查事务回执，无法确认就报错，不盲目重放。空闲调度每 5 秒检查，提交和后台设置变更会立即唤醒；设置缓存最多 5 秒。继续要求单实例、单进程，发布前应等待运行中的任务结束；重启会将中断任务标记为失败。
 
-GitHub 自动部署使用 `.github/workflows/deploy-cloudbase.yml`：推送 `main` 后先验证存储和本地兼容性，再通过官方 CLI 获取源码包上传授权、调用 `UpdateCloudRunServer` 发布。`scripts/deploy_cloudbase.py` 使用 `git archive HEAD` 只上传本次提交的源码，上传带明确超时和重试，不依赖腾讯云 GitHub Webhook 授权。每次显式指定端口 `8000` 和实例数 `1/1`，等待本次任务结束；服务端配置和凭据从云端保留，不写入构建源码。不要同时为同一个服务保留另一套分支自动发布流程。
+GitHub 自动部署使用 `.github/workflows/deploy-cloudbase.yml`：推送 `main` 后先验证存储和本地兼容性，再通过官方 CLI 获取源码包上传授权、调用 `UpdateCloudRunServer` 发布。`scripts/deploy_cloudbase.py` 使用 `git archive HEAD` 只上传本次提交的源码，上传带明确超时和重试，不依赖腾讯云 GitHub Webhook 授权。对于海外 Runner 无法连接的上传别名，使用其已核验的腾讯云 COS CNAME 源站并保留签名中的 Host，TLS 校验始终开启。每次显式指定端口 `8000` 和实例数 `1/1`，等待本次任务结束；服务端配置和凭据从云端保留，不写入构建源码。不要同时为同一个服务保留另一套分支自动发布流程。
 
 仓库 Secret `CLOUDBASE_DEPLOY_API_KEY` 使用独立的环境级部署 Key；服务内的 `TRADINGAGENTS_CLOUDBASE_API_KEY` 使用另一把运行 Key。它们具有环境管理权限，必须保密。维护者负责到期前轮换：签发新 Key → 更新对应 Secret/服务环境变量 → 重新部署并检查 `/readyz` → 吊销旧 Key。本次签发的两个 Key 均于 **2026-11-20** 到期，不要误认为续费环境会自动续期 Key。
 
@@ -120,6 +120,7 @@ $bytes = New-Object byte[] 32
    - `/readyz`
 
 4. 为 `/api` 路径开启 HTTP 身份认证；精确的 `/api/runtime-config` 公开规则应优先于 `/api` 前缀规则。
+   这两条路由都必须开启**路径透传**（`EnablePathTransmission=true`），否则网关会剥掉匹配路径：`/api/runtime-config` 会被转发到 `/` 并返回 HTML，而不是登录初始化所需的 JSON。此设置不改变鉴权开关。
 5. 将正式访问域名加入 CloudBase Web SDK 安全来源列表；本地联调时再按需加入 `localhost`。
 6. 若不希望绕过 HTTP 网关，部署验证完成后可在云托管“服务设置 → 网络访问”中关闭不带鉴权的直接公网入口。
 

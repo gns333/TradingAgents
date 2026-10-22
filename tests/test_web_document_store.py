@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 
 from tests.test_web_store_contract import assert_store_contract
 from tradingagents.web.admin_store import ActiveRunExists
@@ -13,6 +14,7 @@ from tradingagents.web.document_store import CloudBaseDocumentStore
 from tradingagents.web.events import AnalysisEvent
 from tradingagents.web.runtime import load_web_runtime_config
 from tradingagents.web.store import QueueLimitReached, TaskSubmissionPaused
+from tradingagents.web.task_service import AnalysisTaskService
 
 
 class MemoryDocumentClient:
@@ -116,6 +118,44 @@ def test_events_are_monotonic_and_resume_from_sequence(store):
             run["id"], AnalysisEvent("progress", {"n": n})), range(12)))
     assert sorted(event["seq"] for event in events) == list(range(1, 13))
     assert [event["seq"] for event in store.list_analysis_events(run["id"], 9)] == [10, 11, 12]
+
+
+def test_document_task_completion_never_serializes_graph_objects(store, monkeypatch, caplog):
+    original_put = store.db.put
+
+    def strict_json_put(collection, doc_id, data, tx=None):
+        # Match requests' real JSON boundary (the memory store alone accepts
+        # arbitrary Python objects and previously hid this production failure).
+        json.dumps(data, allow_nan=False)
+        return original_put(collection, doc_id, data, tx)
+
+    monkeypatch.setattr(store.db, "put", strict_json_put)
+    run = store.create_analysis_run(run_payload())
+    final_state = {
+        "messages": [AIMessage(content="internal answer"),
+                     ToolMessage(content="raw tool data", tool_call_id="call-1")],
+        "runtime_object": object(), "large_trace": "trace " * 200_000,
+    }
+    events = [
+        AnalysisEvent("report_section_updated", {"section": "market_report", "content": "分析报告"}),
+        AnalysisEvent("run_completed", {"final_state": final_state}),
+    ]
+    service = AnalysisTaskService(store, graph_builder=lambda request: object(),
+                                  event_stream=lambda graph, request: events)
+    try:
+        service.submit(run["id"]).result(timeout=2)
+    finally:
+        service.shutdown()
+    saved = store.get_analysis_run(run["id"])
+    assert saved["status"] == "completed"
+    assert store.get_analysis_report(saved["report_id"])["sections"] == {"market_report": "分析报告"}
+    completed = store.list_analysis_events(run["id"])[-1]
+    assert completed["event"] == "run_completed"
+    assert completed["data"] == {"run_id": run["id"], "report_id": saved["report_id"]}
+    assert saved["last_event_seq"] == completed["seq"] == 2
+    assert store.get_active_analysis_run(run["owner_key"]) is None
+    assert store.count_running_analysis_runs() == 0
+    assert not caplog.records
 
 
 def test_reports_are_private_and_metadata_does_not_download_sections(store):

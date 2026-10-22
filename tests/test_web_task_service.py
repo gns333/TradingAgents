@@ -1,6 +1,9 @@
+import json
 import threading
 import time
 from pathlib import Path
+
+from langchain_core.messages import AIMessage, ToolMessage
 
 from tradingagents.web.admin_store import AdminStore
 from tradingagents.web.events import AnalysisEvent
@@ -67,7 +70,12 @@ def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):
                 "content": "**Rating**: Underweight\n\n严禁左侧加仓。",
             },
         ),
-        AnalysisEvent("run_completed", {"final_state": {}}),
+        AnalysisEvent("run_completed", {"final_state": {
+            "messages": [AIMessage(content="private internal answer"),
+                         ToolMessage(content="private tool result", tool_call_id="call-1")],
+            "runtime_object": object(),
+            "large_trace": "private trace " * 100_000,
+        }}),
     ]
     service = AnalysisTaskService(
         store,
@@ -85,6 +93,13 @@ def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):
     assert report["owner_key"] == "uid:u1"
     assert report["sections"]["market_report"].startswith("# 市场")
     assert report["decision"] == "Underweight"
+    persisted_events = store.list_analysis_events(run["id"])
+    completed = persisted_events[-1]
+    assert completed["event"] == "run_completed"
+    assert completed["data"] == {"run_id": run["id"], "report_id": report["id"]}
+    assert len(json.dumps(completed["data"])) < 200
+    assert isinstance(events[-1].data["final_state"]["messages"][0], AIMessage)
+    assert store.list_analysis_events(run["id"], completed["seq"] - 1) == [completed]
     assert operation_order.index("report:saved") < operation_order.index(
         "event:run_completed"
     )
@@ -92,6 +107,26 @@ def test_service_persists_events_and_report_without_sse_client(tmp_path: Path):
         "event:run_completed"
     )
     service.shutdown()
+
+
+def test_completion_without_report_has_json_safe_null_reference(tmp_path, caplog):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    run = store.create_analysis_run(_run_payload("uid:u1"))
+    service = AnalysisTaskService(
+        store, graph_builder=lambda request: object(),
+        event_stream=lambda graph, request: [AnalysisEvent("run_completed", {
+            "final_state": {"runtime_object": object()},
+        })],
+    )
+    try:
+        service.submit(run["id"]).result(timeout=2)
+    finally:
+        service.shutdown()
+    assert store.get_analysis_run(run["id"])["status"] == "completed"
+    completed = store.list_analysis_events(run["id"])[-1]
+    assert completed["event"] == "run_completed"
+    assert completed["data"] == {"run_id": run["id"], "report_id": None}
+    assert not caplog.records
 
 
 def test_service_marks_failed_event_as_terminal(tmp_path: Path):

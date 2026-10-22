@@ -200,7 +200,16 @@ class AnalysisTaskService:
                         )
                         report_id = int(report["id"])
                     self.store.complete_analysis_run(run_id, report_id)
-                    self.store.append_analysis_event(run_id, event)
+                    # final_state is an internal graph snapshot, potentially
+                    # containing LangChain messages and other non-JSON objects.
+                    # Reports are already archived; durable/browser completion
+                    # only needs stable references, not another full snapshot.
+                    self.store.append_analysis_event(
+                        run_id,
+                        AnalysisEvent("run_completed", {
+                            "run_id": run_id, "report_id": report_id,
+                        }),
+                    )
                     return
                 else:
                     self.store.append_analysis_event(run_id, event)

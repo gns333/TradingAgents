@@ -119,6 +119,27 @@ def test_service_marks_failed_event_as_terminal(tmp_path: Path):
     service.shutdown()
 
 
+def test_worker_failure_logs_stack_and_run_but_not_exception_payload(tmp_path, caplog):
+    store = AdminStore(tmp_path / "admin.sqlite3")
+    run = store.create_analysis_run(_run_payload("uid:u1"))
+
+    def graph_builder(request):
+        raise ValueError("private-key 机密报告正文 user@example.com")
+
+    service = AnalysisTaskService(store, graph_builder=graph_builder)
+    try:
+        service.submit(run["id"]).result(timeout=2)
+    finally:
+        service.shutdown()
+    assert store.get_analysis_run(run["id"])["status"] == "failed"
+    assert run["id"] in caplog.text
+    assert "graph_setup" in caplog.text
+    assert "graph_builder" in caplog.text
+    assert "ValueError" in caplog.text
+    for private in ("private-key", "机密报告正文", "user@example.com"):
+        assert private not in caplog.text
+
+
 def test_recover_fails_running_run_and_executes_queued_run(tmp_path: Path):
     store = AdminStore(tmp_path / "admin.sqlite3")
     running = store.create_analysis_run(_run_payload("uid:u1"))

@@ -1,6 +1,8 @@
 import copy
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import pytest
 
@@ -214,3 +216,76 @@ def test_conflict_retries_and_business_failure_rolls_back(monkeypatch):
 
     assert client.atomic(operation) == "ok"
     assert len(attempts) == 2
+
+
+def test_http_error_logs_redacted_diagnostics_without_changing_request(caplog):
+    client = DocumentClient("env-test", "server-secret-key")
+    body = {"transactionId": "private-tx", "commands": [{
+        "update": "ta_events", "updates": [{"q": {"_id": "private-doc"}, "u": {
+            "data": {"content": "机密报告内容", "password": "12345678"},
+        }}],
+    }]}
+    calls = []
+
+    def request(*args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(ok=False, status_code=400, headers={}, json=lambda: {
+            "code": "INVALID_PARAM", "request_id": "51a96b26-493b-4649-9aed-f5115be80a22",
+            "message": "Invalid parameter commands: BSON size exceeds 1048576 bytes. "
+                       "server-secret-key private-tx private-doc 机密报告内容 12345678 "
+                       "user@example.com 'do not log this'\nforged-log-line",
+        })
+
+    client._local.session = SimpleNamespace(request=request)
+    with pytest.raises(DocumentDatabaseError) as error:
+        client.request("POST", "/commands", body=body)
+    assert error.value.code == "INVALID_PARAM"
+    assert "机密" not in str(error.value)
+    assert len(calls) == 1
+    assert calls[0][1]["json"] == body
+    assert calls[0][1]["headers"]["Authorization"] == "Bearer server-secret-key"
+    log = caplog.text
+    for private in ("server-secret-key", "private-tx", "private-doc", "机密报告内容",
+                    "12345678", "user@example.com", "do not log this", "forged-log-line"):
+        assert private not in log
+    record = next(r for r in caplog.records if "diagnostic=" in r.message)
+    diagnostic = json.loads(record.message.split("diagnostic=", 1)[1].split(" stack=", 1)[0])
+    assert diagnostic["endpoint"] == "/commands"
+    assert diagnostic["request_bytes"] == len(json.dumps(body).encode("utf-8"))
+    assert diagnostic["batches"] == [{"operation": "update", "collection": "ta_events", "count": 1}]
+    assert diagnostic["in_transaction"] is True
+    assert "BSON size exceeds 1048576 bytes" in diagnostic["message"]
+    assert "test_http_error_logs_redacted_diagnostics" in record.message
+
+
+@pytest.mark.parametrize("payload", [[], None, "invalid json", {"message": {"secret": "hidden"}}])
+def test_nonstandard_http_error_response_is_safe(payload, caplog):
+    client = DocumentClient("env-test", "private-key")
+    client._local.session = SimpleNamespace(request=lambda *a, **kw: SimpleNamespace(
+        ok=False, status_code=502, headers={}, json=lambda: payload,
+    ))
+    with pytest.raises(DocumentDatabaseError):
+        client.request("POST", "/transactions/hidden-token/commit")
+    assert "/transactions/{id}/commit" in caplog.text
+    assert "hidden-token" not in caplog.text
+    assert "hidden" not in caplog.text
+
+
+def test_expected_missing_document_does_not_emit_error_log(caplog):
+    client = DocumentClient("env-test", "private-key")
+    client._local.session = SimpleNamespace(request=lambda *a, **kw: SimpleNamespace(
+        ok=False, status_code=404, headers={}, json=lambda: {"code": "DOCUMENT_NOT_FOUND"},
+    ))
+    assert client.get("ta_runs", "private-id") is None
+    assert not caplog.records
+
+
+def test_diagnostic_failure_preserves_original_database_error(monkeypatch):
+    client = DocumentClient("env-test", "private-key")
+    client._local.session = SimpleNamespace(request=lambda *a, **kw: SimpleNamespace(
+        ok=False, status_code=400, headers={}, json=lambda: {"code": "INVALID_PARAM"},
+    ))
+    monkeypatch.setattr(client, "_log_error", lambda *args: 1 / 0)
+    with pytest.raises(DocumentDatabaseError) as error:
+        client.request("POST", "/commands")
+    assert error.value.code == "INVALID_PARAM"

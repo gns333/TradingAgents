@@ -10,6 +10,7 @@ from typing import Any
 
 from tradingagents.agents.utils.rating import parse_rating
 
+from .document_client import log_failure_stack
 from .events import AnalysisEvent
 from .runner import AnalysisRequest, create_graph_for_request, stream_analysis_events
 from .store import ApplicationStore
@@ -155,10 +156,12 @@ class AnalysisTaskService:
         )
         sections: dict[str, str] = {}
         terminal_event = ""
+        event_name = "graph_setup"
 
         try:
             graph = self.graph_builder(request)
             for event in self.event_stream(graph, request):
+                event_name = event.event
                 if event.event == "report_section_updated":
                     section = str(event.data.get("section") or "")
                     content = str(event.data.get("content") or "")
@@ -202,6 +205,8 @@ class AnalysisTaskService:
                 else:
                     self.store.append_analysis_event(run_id, event)
         except Exception as exc:  # noqa: BLE001 - persist all worker failures
+            log_failure_stack(logging.getLogger(__name__), exc,
+                              run_id=run_id, stage=event_name)
             current = self.store.get_analysis_run(run_id)
             if current and current["status"] in {"completed", "failed"}:
                 return

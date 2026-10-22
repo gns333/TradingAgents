@@ -9,15 +9,83 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import logging
 import random
 import re
 import threading
 import time
+import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import requests
+
+_LOGGER = logging.getLogger(__name__)
+# Error responses may echo user input. Only diagnostic/schema vocabulary is
+# retained; arbitrary values (including quoted strings) never enter logs.
+_DIAGNOSTIC_WORDS = frozenset((  # noqa: SIM905 - grouped vocabulary is easier to audit
+    "a an the is are was be been not no cannot can must should required missing "
+    "invalid valid invalid_param parameter parameters param argument arguments "
+    "error failed failure unsupported unexpected unknown malformed empty null redacted "
+    "undefined too large small long short maximum minimum max min exceeds exceed "
+    "size length limit offset bytes byte mb kb count timeout expired transaction "
+    "transactionid transaction_id database collection collections document documents "
+    "command commands batch write update updates insert inserts delete deletes "
+    "find aggregate query filter projection order field fields direction data "
+    "replacemode upsert multi returndoc q u _id _openid set unset inc push "
+    "json ejson bson parse parsing serialize deserialize serialization deserialization "
+    "type string number integer int int32 int64 double boolean object array value "
+    "values key keys name names path format expected found received contains contain "
+    "allowed supported only with without for in of to than at or and from by "
+    "request response body payload property properties encoding utf utf8 utf16 "
+    "numberint numberlong numberdouble date binary oid regex options "
+    "结果 参数 无效 缺失 必须 不能为空 超过 长度 限制 类型 不支持 事务 过期"
+).split())
+
+
+def _diagnostic_message(value, private_values=()) -> str:
+    if not isinstance(value, str):
+        return "<unavailable>"
+    for private in sorted(set(private_values), key=len, reverse=True):
+        if private:
+            value = value.replace(private, "<redacted>")
+    value = re.sub(r"(['\"`]).*?\1", "<redacted>", value[:4096], flags=re.DOTALL)
+
+    def token(match):
+        word = match[0]
+        return word if word.lower() in _DIAGNOSTIC_WORDS or (
+            word.isascii() and word.isdigit() and len(word) <= 9
+        ) else "<redacted>"
+
+    value = re.sub(r"[\w-]+", token, value)
+    value = re.sub(r"[\x00-\x1f\x7f]", " ", value)
+    return re.sub(r"(?:<redacted>[ <>]*){2,}", "<redacted>", value)[:512]
+
+
+def _safe_identifier(value) -> str:
+    return value if isinstance(value, str) and re.fullmatch(
+        r"(?:[A-Z][A-Z0-9_]{1,79}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})", value
+    ) else "<unavailable>"
+
+
+def _request_values(value):
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _request_values(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _request_values(item)
+    elif value is not None:
+        yield str(value)
+
+
+def log_failure_stack(logger, exc, **context):
+    """Keep call sites, not exception text/chains/locals that may hold secrets."""
+    frames = traceback.extract_tb(exc.__traceback__)
+    stack = "\n".join(f"  {frame.filename}:{frame.lineno} in {frame.name}" for frame in frames)
+    logger.error("Analysis failure context=%s type=%s stack=\n%s",
+                 json.dumps(context), type(exc).__name__, stack)
 
 
 class DocumentDatabaseError(RuntimeError):
@@ -54,6 +122,53 @@ class DocumentClient:
         self._api_key = api_key
         self._local = threading.local()
 
+    def _log_error(self, method, path, body, params, response, error):
+        # Endpoint templates conceal document IDs and transaction tokens.
+        collection_match = re.fullmatch(r"/collections/([a-zA-Z0-9_]+)/documents(?:/[^/]+)?", path)
+        collection = collection_match[1] if collection_match else None
+        if collection_match:
+            endpoint = "/collections/{collection}/documents" + ("/{id}" if path.count("/") == 4 else "")
+        elif re.fullmatch(r"/transactions/[^/]+/(commit|rollback)", path):
+            endpoint = "/transactions/{id}/" + path.rsplit("/", 1)[-1]
+        else:
+            endpoint = path if path in {"/commands", "/transactions"} else "<other>"
+        try:
+            request_bytes = len(json.dumps(body, allow_nan=False).encode("utf-8")) if body is not None else 0
+        except (TypeError, ValueError):
+            request_bytes = None
+        commands = (body or {}).get("commands", []) if isinstance(body, dict) else []
+        batches = []
+        for command in commands[:20]:
+            if not isinstance(command, dict):
+                continue
+            for operation, entries in (("update", "updates"), ("insert", "documents"), ("delete", "deletes")):
+                if operation in command:
+                    target = command[operation]
+                    batches.append({"operation": operation,
+                                    "collection": target if target in {
+                                        "ta_control", "ta_users", "ta_models", "ta_whitelist", "ta_sessions",
+                                        "ta_runs", "ta_events", "ta_reports", "ta_owners", "ta_operations",
+                                    } else "<other>",
+                                    "count": len(command[entries]) if isinstance(command.get(entries), list) else None})
+        diagnostic = {
+            "method": method, "endpoint": endpoint, "collection": collection,
+            "status": response.status_code,
+            "code": _safe_identifier(error.get("code") or "HTTP_ERROR"),
+            "request_id": _safe_identifier(error.get("request_id") or response.headers.get("x-request-id", "")),
+            "message": _diagnostic_message(error.get("message"), (
+                self._api_key, *_request_values(body), *_request_values(params),
+            )),
+            "request_bytes": request_bytes, "command_count": len(commands), "batches": batches,
+            "query_bytes": len(json.dumps(params).encode("utf-8")) if params is not None else 0,
+            "in_transaction": bool((body or {}).get("transactionId") or (params or {}).get("transactionId")),
+        }
+        # Expected misses are part of normal get/upsert behavior, not failures.
+        if response.status_code == 404 and error.get("code") == "DOCUMENT_NOT_FOUND":
+            return
+        stack = "\n".join(f"  {f.filename}:{f.lineno} in {f.name}" for f in traceback.extract_stack()[:-1])
+        _LOGGER.error("CloudBase database request failed diagnostic=%s stack=\n%s",
+                      json.dumps(diagnostic, ensure_ascii=False), stack)
+
     def request(self, method, path, *, body=None, params=None):
         if not hasattr(self._local, "session"):
             self._local.session = requests.Session()
@@ -67,9 +182,15 @@ class DocumentClient:
                 error = response.json()
             except ValueError:
                 error = {}
+            if not isinstance(error, dict):
+                error = {}
+            try:
+                self._log_error(method, path, body, params, response, error)
+            except Exception:  # Diagnostic failures must not change write/retry semantics.
+                _LOGGER.error("CloudBase database diagnostic unavailable status=%s", response.status_code)
             raise DocumentDatabaseError(
-                response.status_code, str(error.get("code") or "HTTP_ERROR"),
-                str(error.get("request_id") or response.headers.get("x-request-id", "")),
+                response.status_code, _safe_identifier(error.get("code") or "HTTP_ERROR"),
+                _safe_identifier(error.get("request_id") or response.headers.get("x-request-id", "")),
             )
         return decode_ejson(response.json()) if response.content else {}
 
